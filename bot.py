@@ -37,7 +37,6 @@ Your goal is to guide the student through their syllabus, track their progress, 
 - If they say they want a break or feel down ('bhalo lagtese na'), give them a strictly timed 15-min offline break task, or quick micro-tips.
 """
 
-# Dummy Server to satisfy Render's Free Web Service Port check
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     server_address = ('', port)
@@ -89,35 +88,41 @@ async def track_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subject = "Math"
     
     status_str = await get_status_str()
-    chat_completion = groq_client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
-            {"role": "user", "content": f"I just finished 1 {subject} class, including notes, practice, and exam!"}
-        ],
-        model="llama3-8b-8192",
-    )
-    await update.message.reply_text(chat_completion.choices[0].message.content)
+    
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
+                {"role": "user", "content": f"I just finished 1 {subject} class, including notes, practice, and exam!"}
+            ],
+            model="llama-3.1-8b-instant", # Groq-এর জন্য ১০০% ওয়ার্কিং ও সুপার ফাস্ট মডেল
+        )
+        await update.message.reply_text(chat_completion.choices[0].message.content)
+    except Exception as e:
+        logging.error(f"Groq Error: {e}")
+        await update.message.reply_text(f"✅ {subject} er progress save hoise! But Groq API ektu jhamela kortese.\n📊 {status_str}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     status_str = await get_status_str()
-    chat_completion = groq_client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
-            {"role": "user", "content": user_text}
-        ],
-        model="llama3-8b-8192",
-    )
-    await update.message.reply_text(chat_completion.choices[0].message.content)
+    
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
+                {"role": "user", "content": user_text}
+            ],
+            model="llama-3.1-8b-instant", # Groq-এর জন্য ১০০% ওয়ার্কিং ও সুপার ফাস্ট মডেল
+        )
+        await update.message.reply_text(chat_completion.choices[0].message.content)
+    except Exception as e:
+        logging.error(f"Groq Error: {e}")
+        await update.message.reply_text("🤖 'Khayalamu' bhabtese... kintu Groq API key te ektu jhamela mone hocche.")
 
 def main():
-    # Start the dummy server in a background thread
     threading.Thread(target=run_dummy_server, daemon=True).start()
-
-    # Build Telegram Application
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", show_status))
     app.add_handler(CommandHandler(["done_phy", "done_chem", "done_bio", "done_math"], track_progress))
