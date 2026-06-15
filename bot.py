@@ -15,34 +15,39 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# 🔒 এখানে তোমার আসল টেলিগ্রাম চ্যাট আইডি বসাও (যাতে লক না দেখায়)
+# 🔒 এখানে তোমার আসল টেলিগ্রাম চ্যাট আইডি বসাও
 ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337)) 
 
 # Initialize Gemini Client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# State Management (Memory)
+# Advanced State Management (Memory)
 user_data = {
     "backlog_left": 30,
-    "physics": 0,
-    "chemistry": 0,
-    "biology": 0,
-    "math": 0,
-    "daily_target": "No target set yet for today."
+    "physics": 0, "chemistry": 0, "biology": 0, "math": 0,
+    "daily_target_raw": "No target set yet.",
+    "target_time": None,
+    "is_waiting_for_target": False
 }
 
-# খাঁটি বাংলা সিস্টেম ইনস্ট্রাকশন
+# মেগা মেন্টর সিস্টেম প্রম্পট
 SYSTEM_PROMPT = """
-You are 'Khayalamu', an elite, strict yet loving personal AI Mentor for a Bangladeshi student preparing for exams. 
+You are 'Khayalamu', an elite, highly intelligent, strict yet loving personal AI Mentor for a Bangladeshi competitive examinee. 
 
-### LANGUAGE & TONE RULES (CRITICAL):
-- ALWAYS speak in 100% NATURAL, CASUAL, and COLLOQUIAL BANGLADESHI BENGALI (খাঁটি বাংলাদেশি বন্ধুদের বা বড় ভাইদের মতো ইনফরমাল বাংলা ভাষা)।
-- NEVER use bookish or literal Google-translated words (e.g., NEVER say "নিঃশ্বাস সংক্রমণ", "মানসিকভাবে থাকবে", "শিক্ষা সর্বোচ্চ আছে")।
-- Speak EXACTLY like a supportive Bangladeshi big brother, senior, or personal coach. Use words like "আরে ভাই", "শোনো", "পড়তে বসো", "একটু ব্রেক নাও", "চা খেয়ে আসো", "ফাঁকিবাজি বন্ধ করো", "চিল করো"।
-- Keep your answers short, clear, full of emojis, and highly motivating.
+### YOUR ROLE:
+The student has shared their detailed study plan/target for today. Your job is to monitor them like a real, hardcore human mentor or strict elder brother.
+You must analyze their progress based on what they update you. If they slacked off, SCOLD THEM (বকা দাও, রিয়েলিটি চেক দাও) but keep it loving. If they did partial work (e.g., half lecture done), remember it and ask about the remaining half in the next reminder!
 
-### CURRENT STUDENT STATUS:
-{status_str}
+### LANGUAGE & TONE RULES:
+- STRICTLY speak in 100% NATURAL, CASUAL, COLLOQUIAL BANGLADESHI BENGALI (খাঁটি বাংলাদেশি বড় ভাই বা হোস্টেলের সিনিয়রের মতো ইনফরমাল ভাষা)।
+- NEVER use bookish or Google-translated alien words.
+- Use words like "আরে ভাই", "শোনো", "ফাঁকিবাজি বন্ধ করো", "টাইম কিন্তু নাই", "মাথা খাটামু না পড়া মুখস্থ করমু?", "চা খেয়ে পড়তে বসো"।
+- Keep it witty, sarcastic when they fail, and highly motivating when they achieve.
+
+### CURRENT SITUATION:
+- Overall Backlog Status: {status_str}
+- The Full Plan/Target they set: {daily_target_raw}
+- Context for this message: {context_reason}
 """
 
 def run_dummy_server():
@@ -55,82 +60,106 @@ def run_dummy_server():
 async def get_status_str():
     total_done = 30 - user_data["backlog_left"]
     return (
-        f" ═══【STATUS】═══\n\n"
-        f"🎧 Total Backlog Left: {user_data['backlog_left']}/30\n"
-        f"🎗 Classes Completed: {total_done}\n\n"
-        f"📚 Subject-wise Progress:\n"
-        f" ├  Physics: {user_data['physics']}\n"
-        f" ├ Chemistry: {user_data['chemistry']}\n"
-        f" ├ Biology: {user_data['biology']}\n"
-        f" └ Math: {user_data['math']}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🏆 Today's Target: {user_data['daily_target']}"
+        f"📊 বাকি ব্যাকলগ: {user_data['backlog_left']}/30 | "
+        f"Physics: {user_data['physics']}, Chem: {user_data['chemistry']}, "
+        f"Bio: {user_data['biology']}, Math: {user_data['math']}\n"
+        f"🎯 আজকের ফুল প্ল্যান: {user_data['daily_target_raw']}"
     )
 
 def get_main_keyboard():
     keyboard = [
-        ['📊 স্ট্যাটাস চেক', '🎯 আজকের টার্গেট সেট'],
+        ['📊 স্ট্যাটাস চেক', '🎯 ডাইনামিক প্ল্যান সেট'],
         ['✅ শেষ: Physics', '✅ শেষ: Chemistry'],
         ['✅ শেষ: Biology', '✅ শেষ: Math']
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID:
-        await update.message.reply_text("❌ দুঃখিত ভাই! এই বোটটি সম্পূর্ণ ব্যক্তিগত।")
-        return
-
+    if update.effective_chat.id != ALLOWED_CHAT_ID: return
     welcome_msg = (
-        "👋 **আসসালামু আলাইকুম ভাই! আমি তোমার এআই মেন্টর 'Khayalamu'।**\n\n"
-        "গুগল জেমিনির পাওয়ার নিয়ে এখন আমি লাইনে আছি। পড়ালেখার কী অবস্থা বলো?\n"
-        "👇 নিচের বাটনগুলো ব্যবহার করতে পারো:"
+        "👋 **আসসালামু আলাইকুম ভাই! আমি 'Khayalamu' মেন্টর প্রো!**\n\n"
+        "এখন থেকে তুমি আমার সাথে পুরো দিনের ডিটেইলস প্ল্যান লক করতে পারবে। "
+        "আমি প্রতি ১ ঘণ্টা পর পর এসে তোমার লাইফ হেল করে দেব প্রোগ্রেস জানার জন্য! 😈\n\n"
+        "👇 শুরু করতে '🎯 ডাইনামিক প্ল্যান সেট' বাটনে চাপো:"
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# --- ⏰ REMINDER SYSTEM ---
-async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
+# --- ⏰ ডাইনামিক ১ ঘণ্টার মেন্টর রিমাইন্ডার ইঞ্জিন ---
+async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
+    """প্রতি ১ ঘণ্টা পর পর জেমিনি নিজে থেকে মেসেজ জেনারেট করে ইউজারকে নক দেবে"""
+    if user_data["daily_target_raw"] == "No target set yet.":
+        return # কোনো প্ল্যান সেট না থাকলে রিমাইন্ডার যাবে না
+        
     status_str = await get_status_str()
-    reminder_msg = (
-        f"🚨 **ভাই! আজকের টার্গেটের কী অবস্থা?**\n\n"
-        f"🏆 *আজকের লক্ষ্য ছিল:* `{user_data['daily_target']}`\n\n"
-        f"ফাঁকিবাজি না করে দ্রুত পড়া শেষ করো! কোনো ক্লাস শেষ হলে নিচের বাটন চেপে আপডেট জানিয়ে দাও।\n\n"
-        f"{status_str}"
-    )
-    try:
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reminder_msg, parse_mode="Markdown")
-    except Exception as e:
-        logging.error(f"Reminder failed: {e}")
+    context_reason = "This is an automated 1-hour progress check. Ask the student what they have done in the last 1 hour from their plan. SCOLD them if they haven't updated you recently, remind them how many hours are left before 12 AM midnight, and intelligently cross-question their progress."
 
-async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents="Give me the hourly push notification message for the student.",
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT.format(status_str=status_str, daily_target_raw=user_data["daily_target_raw"], context_reason=context_reason),
+                temperature=0.8,
+            ),
+        )
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=response.text, parse_mode="Markdown")
+    except Exception as e:
+        logging.error(f"Hourly reminder error: {e}")
+
+async def test_hourly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """টেস্ট করার জন্য ১০ সেকেন্ড পর পর নক দেওয়ার সিক্রেট কমান্ড"""
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    await update.message.reply_text("⏳ জেমিনি রিমাইন্ডার ইঞ্জিন টেস্ট হচ্ছে... ঠিক ১০ সেকেন্ড পর বোট নিজে থেকে মেসেজ দেবে!")
-    context.job_queue.run_once(send_reminder, 10)
-# ---------------------------
+    await update.message.reply_text("⏳ ডাইনামিক মেন্টর ইঞ্জিন অ্যাক্টিভেট হচ্ছে... ১০ সেকেন্ড পর প্রথম রিয়েলিটি চেক আসবে!")
+    context.job_queue.run_once(hourly_mentor_check, 10)
+# ---------------------------------------------------
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID:
-        await update.message.reply_text("❌ এই বোটটি লক করা আছে।")
-        return
+    if update.effective_chat.id != ALLOWED_CHAT_ID: return
 
     user_text = update.message.text
     subject = None
 
     if user_text == '📊 স্ট্যাটাস চেক':
         status = await get_status_str()
-        await update.message.reply_text(status, parse_mode="Markdown")
+        await update.message.reply_text(f"📝 **বর্তমান অবস্থা:**\n\n{status}", parse_mode="Markdown")
         return
 
-    elif user_text == '🎯 আজকের টার্গেট সেট':
-        user_data["daily_target"] = "Waiting for your target..."
-        await update.message.reply_text("📝 **আজকে তোমার টার্গেট কী ভাই?**\nলিখে পাঠাও, আমি মনে রাখছি!")
+    elif user_text == '🎯 ডাইনামিক প্ল্যান সেট':
+        user_data["is_waiting_for_target"] = True
+        await update.message.reply_text(
+            "📝 **ভাই, আজকে রাত ১২টার মধ্যে কী কী ওড়াতে চাও? একদম ডিটেইলসে বলো!**\n\n"
+            "যেমন এভাবে লেখো:\n"
+            "_- Physics Lecture 3 দেখব ও নোট করব_\n"
+            "_- Chem Ch 2 এর ২৫টা ম্যাথ প্র্যাকটিস করব_"
+        )
         return
 
-    if user_data["daily_target"] == "Waiting for your target...":
-        user_data["daily_target"] = user_text
-        await update.message.reply_text(f"🚀 **টার্গেট সেট হয়ে গেছে ভাই!**\n\n🏆 *আজকের টার্গেট:* `{user_text}`\n\nএবার পড়তে বসে যাও!")
+    # প্ল্যান সেভ করা এবং ১ ঘণ্টার লুপ চালু করা
+    if user_data["is_waiting_for_target"]:
+        user_data["daily_target_raw"] = user_text
+        user_data["is_waiting_for_target"] = False
+        
+        # আগের কোনো রিমাইন্ডার জব চালু থাকলে সেটা রিমুভ করা
+        current_jobs = context.job_queue.get_jobs_by_name("hourly_tracker")
+        for job in current_jobs:
+            job.schedule_removal()
+            
+        # প্রতি ১ ঘণ্টা (৩৬০০ সেকেন্ড) পর পর রিমাইন্ডার সেট করা
+        context.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
+        
+        status_str = await get_status_str()
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"I have set my target: {user_text}. Acknowledge it like a strict mentor and tell me you will check on me every hour.",
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT.format(status_str=status_str, daily_target_raw=user_data["daily_target_raw"], context_reason="Target just set by user. Give a highly motivating acceptence speech."),
+                temperature=0.7,
+            ),
+        )
+        await update.message.reply_text(response.text, parse_mode="Markdown")
         return
 
-    # সাবজেক্ট আপডেট হ্যান্ডলিং
+    # সাবজেক্ট ম্যানুয়াল বাটন হ্যান্ডলিং
     if user_text == '✅ শেষ: Physics':
         user_data["physics"] += 1; user_data["backlog_left"] -= 1; subject = "Physics"
     elif user_text == '✅ শেষ: Chemistry':
@@ -141,43 +170,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["math"] += 1; user_data["backlog_left"] -= 1; subject = "Math"
 
     status_str = await get_status_str()
-    ai_input = f"I just finished 1 {subject} class!" if subject else user_text
+    ai_input = f"Update from student: I just completed 1 {subject} class from my plan!" if subject else user_text
 
     try:
-        # জেমিনি এপিআই কল করার নতুন স্ট্যান্ডার্ড ফরম্যাট
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=ai_input,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT.format(status_str=status_str),
+                system_instruction=SYSTEM_PROMPT.format(status_str=status_str, daily_target_raw=user_data["daily_target_raw"], context_reason="Normal conversation/update from student. Analyze if they are doing partial work or full work, note it down in mind, and reply accordingly."),
                 temperature=0.7,
             ),
         )
         reply = response.text
         if subject:
-            reply += f"\n\n{status_str}"
+            reply += f"\n\n💡 {status_str}"
         await update.message.reply_text(reply, parse_mode="Markdown")
     except Exception as e:
         logging.error(f"Gemini Error: {e}")
-        if subject:
-            await update.message.reply_text(f"✅ {subject} আপডেট হয়েছে ভাই!\n\n{status_str}")
-        else:
-            await update.message.reply_text("🤖 জেমিনি একটু জ্যামে আছে ভাই, আবার ট্রাই করো!")
+        await update.message.reply_text("🤖 জেমিনির লাইনে একটু সমস্যা ভাই, আবার ট্রাই করো!")
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # অটো রিমাইন্ডার শিডিউল (দুপুর ৩টা ও রাত ৯টা)
-    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=9, minute=0))
-    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=15, minute=0))
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test_remind", test_reminder_command)) 
+    app.add_handler(CommandHandler("test_remind", test_hourly_command)) # ১০ সেকেন্ডের ইনস্ট্যান্ট টেস্ট কমান্ড
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot is running with Pure Gemini Engine...")
+    print("Dynamic Mentor Bot is running...")
     app.run_polling()
 
 if __name__ == '__main__':
