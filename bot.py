@@ -23,14 +23,13 @@ ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337))
 # Initialize Gemini Client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Advanced State Management
+# Modern State Machine Configuration
 user_data = {
     "daily_target_raw": "No target set yet.",
-    "is_waiting_for_target": False
+    "current_state": "MAIN_MENU" # STATES: MAIN_MENU, WAITING_FOR_TARGET, WAITING_FOR_ADD, WAITING_FOR_CLASS, WAITING_FOR_NOTE, WAITING_FOR_PRACTICE, WAITING_FOR_EXAM
 }
 user_syllabus = {}
 
-# 🧠 জিতু ভাইয়ার আসল ইমোশনাল প্রম্পট (ব্যাকএন্ড ডেটা লিংকের সাথে)
 SYSTEM_PROMPT = """
 You are 'Jeetu Bhaiya' (from Kota Factory), an elite, deeply empathetic, yet hardcore and practical personal AI Mentor for a Bangladeshi competitive examinee.
 You are not just a bot; you are their real elder brother, their support system, and their toughest critic.
@@ -38,8 +37,8 @@ You are not just a bot; you are their real elder brother, their support system, 
 ### CRITICAL CONTEXT FROM DATABASE:
 - Overall Syllabus Stats: {status_str}
 - Today's Target: {daily_target_raw}
-- Recently Touched but Unfinished: {recent_pending} (If anything is here, look at it and scold or remind them naturally about it.)
-- Spaced Repetition Recap: {recap_item} (If an old topic is here, intelligently tell them to review it for 15 mins so they don't forget.)
+- Recently Touched but Unfinished: {recent_pending}
+- Spaced Repetition Recap: {recap_item}
 
 ### LANGUAGE & TONE RULES:
 1. STRICTLY speak in 100% NATURAL, CASUAL, COLLOQUIAL BANGLADESHI BENGALI.
@@ -51,15 +50,13 @@ You are not just a bot; you are their real elder brother, their support system, 
 def get_bd_time():
     return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 
-# --- 🧠 স্মার্ট লার্নিং অ্যান্ড স্পেসড রেপিটেশন ইঞ্জিন ---
+# --- 🧠 লার্নিং অ্যান্ড স্পেসড রেপিটেশন ইঞ্জিন ---
 def process_ai_insights():
     total_lectures = len(user_syllabus)
     pending_lectures = 0
     complete_lectures = 0
-    
     recent_pending_list = []
     recap_list = []
-    
     now = get_bd_time()
     
     for item, status in sorted(user_syllabus.items(), key=lambda x: x[1].get('last_updated', ''), reverse=True):
@@ -75,13 +72,11 @@ def process_ai_insights():
                     date_pure_str = f"{parts[1]} {parts[2]} {parts[3]}"
                     parsed_dt = datetime.datetime.strptime(date_pure_str, "%b %d %Y")
                     days_diff = (now.date() - parsed_dt.date()).days
-            except Exception:
-                pass
+            except Exception: pass
 
         if done_count == 4:
             complete_lectures += 1
-            if days_diff >= 30:
-                recap_list.append(item.replace("_", " "))
+            if days_diff >= 30: recap_list.append(item.replace("_", " "))
         else:
             pending_lectures += 1
             if done_count > 0 and len(recent_pending_list) < 2:
@@ -127,34 +122,50 @@ def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     HTTPServer(('', port), SimpleHTTPRequestHandler).serve_forever()
 
+# --- 🎛️ ডাইনামিক স্মার্ট কীবোর্ড লেআউটস ---
 def get_main_keyboard():
-    return ReplyKeyboardMarkup([['📊 /status', '🎯 /plan', '📋 /report'], ['🛑 /stop_plan']], resize_keyboard=True)
+    return ReplyKeyboardMarkup([
+        ['📊 স্ট্যাটাস চেক', '🎯 প্ল্যান সেট করো', '📋 প্রোগ্রেস রিপোর্ট'],
+        ['🛠️ সিলেবাস ম্যানেজার', '🛑 /stop_plan']
+    ], resize_keyboard=True)
 
-# 🔄 আগের সেই চেনা ও জীবন্ত /start মেসেজ ফেরত আনা হলো
+def get_syllabus_keyboard():
+    return ReplyKeyboardMarkup([
+        ['➕ নতুন লেকচার অ্যাড', '📺 CLASS ডান করো'],
+        ['📝 NOTE ডান করো', '🎯 PRACTICE ডান করো'],
+        ['🏆 EXAM ডান করো', '🔙 মেইন মেনু']
+    ], resize_keyboard=True)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
+    user_data["current_state"] = "MAIN_MENU"
     welcome_text = (
         "আরে ভাই! আমি তোমার মেন্টর জিতু ভাইয়া। 😎\n\n"
-        "কোটা ফ্যাক্টরির জিতু ভাইয়ার মতোই আমি এখানে এসেছি তোমায় গাইড করতে, দরকার হলে বকা দিতে, আর যেকোনো মূল্যে তোমার সিলেবাস শেষ করাতে।\n\n"
-        "চল, একদম রিয়েল মানুষের মতো চ্যাট শুরু করি। নিচে কীবোর্ড বাটন দেওয়া আছে, যখন যা লাগবে জানাবে! পড়াশোনা ফাঁকি দিলে কিন্তু খবর আছে!"
+        "সব বাটন এখন ডাইনামিক এবং ১০০% স্মার্ট করা হয়েছে। তোমাকে আর কষ্ট করে কমান্ড লিখতে হবে না। "
+        "নিচের মেনু থেকে জাস্ট ক্লিক করে পুরো সিলেবাস কন্ট্রোল করতে পারবে। পড়াশোনায় ফাঁকি দিলে কিন্তু খবর আছে!"
     )
     await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
 
 # --- 📚 সিলেবাস রেঞ্জ পার্সিং ---
 def parse_lecture_range(lecture_str):
-    lecture_str = lecture_str.upper()
+    lecture_str = lecture_str.upper().strip()
     match = re.match(r"L(\d+)-L?(\d+)", lecture_str)
     if match:
         return [f"L{i}" for i in range(int(match.group(1)), int(match.group(2)) + 1)]
     return [lecture_str]
 
-async def add_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    if not context.args or len(context.args) < 3:
-        await update.message.reply_text("❌ ফরম্যাট: `/add P1 C1 L1-3`")
+def extract_tokens(text):
+    clean_text = text.upper().replace("/", " ").replace("-", " ").strip()
+    return [t for t in clean_text.split(" ") if t]
+
+# --- ⚙️ স্মার্ট কোর ফাংশনস ---
+async def process_dynamic_add(update: Update, text: str):
+    tokens = extract_tokens(text)
+    if len(tokens) < 3:
+        await update.message.reply_text("❌ ফরম্যাট বোঝো নাই ভাই! এভাবে লেখো: `P1 C1 L1-3` (বা সাবজেক্ট চ্যাপ্টার লেকচার)")
         return
-    sub, ch = context.args[0].upper(), context.args[1].upper()
-    lectures = parse_lecture_range(context.args[2])
+    sub, ch = tokens[0], tokens[1]
+    lectures = parse_lecture_range(tokens[2])
     
     current_time_str = get_bd_time().strftime("%a %b %d %Y %H:%M:%S GMT+0600")
     for lec in lectures:
@@ -162,19 +173,17 @@ async def add_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_syllabus[key] = {"class": "Pending", "note": "Pending", "practice": "Pending", "exam": "Pending", "last_updated": current_time_str}
         save_syllabus_item(key, {"class": "Pending", "note": "Pending", "practice": "Pending", "exam": "Pending"})
         
-    await update.message.reply_text(f"✅ সিলেবাসে {len(lectures)}টি লেকচার যোগ করে নিয়েছি ভাই। পড়তে বসে যাও এবার!")
+    user_data["current_state"] = "MAIN_MENU"
+    await update.message.reply_text(f"✅ সাবাশ! সিলেবাসে {len(lectures)}টি লেکচার যোগ করে নিয়েছি। পড়তে বসে যাও!", reply_markup=get_main_keyboard())
 
-async def done_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    if not context.args or len(context.args) < 4:
-        await update.message.reply_text("❌ ফরম্যাট: `/done P1 C1 L1 note`")
+async def process_dynamic_done(update: Update, text: str, task_type: str):
+    tokens = extract_tokens(text)
+    if len(tokens) < 3:
+        await update.message.reply_text(f"❌ কোড ভুল ভাই! কোনটার {task_type.upper()} ডান করলা? এভাবে লেখো: `P1 C1 L1`")
         return
-    sub, ch = context.args[0].upper(), context.args[1].upper()
-    lectures = parse_lecture_range(context.args[2])
-    task_type = context.args[3].lower()
+    sub, ch = tokens[0], tokens[1]
+    lectures = parse_lecture_range(tokens[2])
     
-    if task_type not in ["class", "note", "practice", "exam"]: return
-        
     updated = 0
     current_time_str = get_bd_time().strftime("%a %b %d %Y %H:%M:%S GMT+0600")
     for lec in lectures:
@@ -185,18 +194,18 @@ async def done_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_syllabus_item(key, {task_type: "Done"})
             updated += 1
             
+    user_data["current_state"] = "MAIN_MENU"
     if updated > 0:
-        await update.message.reply_text(f"🎉 সাবাশ বাঘের বাচ্চা! {updated}টি লেকচারের {task_type.upper()} ডান করে দিয়েছি।")
+        await update.message.reply_text(f"🎉 ওড়ায় দিছিস ভাই! {updated}টি লেকচারের {task_type.upper()} সফলভাবে ডান।", reply_markup=get_main_keyboard())
     else:
-        await update.message.reply_text("❌ এই লেকচার তো সিলেবাসে নাই ভাই। আগে `/add` করো।")
+        await update.message.reply_text("❌ এই লেকচারটা তো সিলেবাসে খুঁজে পাচ্ছি না। আগে অ্যাড করতে হবে ভাই!", reply_markup=get_main_keyboard())
 
-async def view_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
+async def view_syllabus_smart(update: Update, filter_arg: str = ""):
     if not user_syllabus:
-        await update.message.reply_text("📋 সিলেবাস একদম খালি ভাই। আগে কিছু এড করো।")
+        await update.message.reply_text("📋 সিলেবাস একদম খালি ভাই। আগে ম্যানেজার থেকে কিছু অ্যাড করো।")
         return
     
-    filter_prefix = "_".join(context.args).upper() if context.args else ""
+    filter_prefix = filter_arg.upper().strip()
     total_tasks, completed_tasks, total_lecs, pending_lecs = 0, 0, 0, 0
     
     for item, status in user_syllabus.items():
@@ -210,7 +219,7 @@ async def view_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if lec_pending: pending_lecs += 1
 
     if total_lecs == 0:
-        await update.message.reply_text("❌ ডাটা খুঁজে পাইনি।")
+        await update.message.reply_text("❌ এই ফিল্টারে কোনো ডাটা পাওয়া যায়নি ভাই।")
         return
 
     percentage = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
@@ -234,45 +243,19 @@ async def view_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text(report, parse_mode="Markdown")
 
-# --- 🚀 আগের মতো সুন্দর ও লাইভ ড্যাশবোর্ড স্ট্যাটাস ---
-async def handle_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    _, _, _, total, pending, complete = process_ai_insights()
-    
-    status_msg = (
-        f"📝 **বর্তমান অবস্থা:**\n\n"
-        f"📊 **সিলেবাস সামারি:**\n"
-        f" ├ 📚 মোট লেকচার: `{total}`\n"
-        f" ├ ✅ সম্পূর্ণ লেকচার: `{complete}`\n"
-        f" └ ⏳ পেন্ডিং লেকচার: `{pending}`\n\n"
-        f"🎯 **আজকের ফুল প্ল্যান:**\n"
-        f"`{user_data['daily_target_raw']}`"
-    )
-    await update.message.reply_text(status_msg, parse_mode="Markdown")
-
-async def handle_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    user_data["is_waiting_for_target"] = True
-    await update.message.reply_text("📝 **আজকে রাত ১২টার মধ্যে কোন কোন লেকচার ওড়াতে চাও ভাই? ডিটেইলসে টাইপ করো:**")
-
-async def stop_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != ALLOWED_CHAT_ID: return
+async def stop_plan_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_jobs = context.job_queue.get_jobs_by_name("hourly_tracker")
-    if not current_jobs:
-        await update.message.reply_text("🤷‍♂️ কোনো নোটিফিকেশন লুপ একটিভ নেই ভাই।")
-        return
     for job in current_jobs: job.schedule_removal()
     user_data["daily_target_raw"] = "No target set yet."
+    user_data["current_state"] = "MAIN_MENU"
     save_target_to_sheet("No target set yet.")
-    await update.message.reply_text("🛑 আজকের রিমাইন্ডার ইঞ্জিন অফ করা হলো! ভালোমতো পড়াশোনা করো।")
+    await update.message.reply_text("🛑 আজকের রিমাইন্ডার অফ করা হলো ভাই। এখন নিজের দায়িত্বে টেবিলে বসো!", reply_markup=get_main_keyboard())
 
 # --- ⏰ অপ্টিমাইজড রিমাইন্ডার ইঞ্জিন ---
 async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
     if user_data["daily_target_raw"] == "No target set yet.": return 
-        
     stats_str, recent_pending, recap_item = process_ai_insights()
     bd_time = get_bd_time().strftime("%I:%M %p")
-
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -283,37 +266,80 @@ async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=response.text, parse_mode="Markdown")
-    except Exception as e: 
-        logging.error(f"Hourly error: {e}")
+    except Exception as e: logging.error(f"Hourly error: {e}")
 
-# --- 💬 মেসেজ ও চ্যাট ইঞ্জিন (বাটন ইন্টারসেপ্ট সহ) ---
+# --- 💬 ডাইনামিক কীবোর্ড ও মেসেজ রাউটার ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    user_text = update.message.text
+    user_text = update.message.text.strip()
 
-    # বাটন টেক্সট অথবা কম্যান্ড দুইটাই যেন পারফেক্টলি কাজ করে
-    if 'report' in user_text or '/report' in user_text: 
-        args = user_text.split(" ")[1:]
-        context.args = args
-        return await view_syllabus(update, context)
-    if 'status' in user_text or '/status' in user_text: return await handle_status_command(update, context)
-    if 'plan' in user_text or '/plan' in user_text: return await handle_plan_command(update, context)
-    if 'stop_plan' in user_text or '/stop_plan' in user_text: return await stop_plan(update, context)
+    # 🚨 ট্রিপল-লেয়ার সেফটি চেক ফর স্টপ প্ল্যান
+    if 'stop_plan' in user_text or '/stop_plan' in user_text:
+        return await stop_plan_engine(update, context)
 
-    # ডাইনামিক ডেইলি প্ল্যান ইনপুট প্রসেস
-    if user_data["is_waiting_for_target"]:
+    # 1. প্রধান মেনু ইন্টারসেপ্টরস
+    if user_text == '📊  স্ট্যাটাস চেক':
+        _, _, _, total, pending, complete = process_ai_insights()
+        status_msg = (
+            f"📝 **বর্তমান অবস্থা:**\n\n"
+            f"📊 **সিলেবাস সামারি:**\n"
+            f" ├ 📚 মোট লেকচার: `{total}`\n"
+            f" ├ ✅ সম্পূর্ণ লেকচার: `{complete}`\n"
+            f" └ ⏳ পেন্ডিং লেকচার: `{pending}`\n\n"
+            f"🎯 **আজকের ফুল প্ল্যান:**\n"
+            f"`{user_data['daily_target_raw']}`"
+        )
+        return await update.message.reply_text(status_msg, parse_mode="Markdown")
+
+    if user_text == '🎯 প্ল্যান সেট করো':
+        user_data["current_state"] = "WAITING_FOR_TARGET"
+        return await update.message.reply_text("📝 **আজকে রাত ১২টার মধ্যে কোন কোন লেকচার ওড়াতে চাও ভাই? ডিটেইলসে টাইপ করে পাঠাও:**")
+
+    if user_text == '📋 প্রোগ্রেস রিপোর্ট':
+        return await view_syllabus_smart(update)
+
+    if user_text == '🛠️ সিলেবাস管理器' or user_text == '🛠️ সিলেবাস ম্যানেজার':
+        return await update.message.reply_text("🛠️ **সিলেবাস কন্ট্রোল প্যানেল অন করা হয়েছে ভাই:**", reply_markup=get_syllabus_keyboard())
+
+    if user_text == '🔙 মেইন মেনু':
+        user_data["current_state"] = "MAIN_MENU"
+        return await update.message.reply_text("🔙 প্রধান মেনুতে ফিরে আসা হয়েছে ভাই।", reply_markup=get_main_keyboard())
+
+    # 2. সিলেবাস সাব-মেনু সিলেকশনস (স্টেট চেঞ্জার)
+    if user_text == '➕ নতুন লেকচার অ্যাড':
+        user_data["current_state"] = "WAITING_FOR_ADD"
+        return await update.message.reply_text("✍️ কোন চ্যাপ্টার অ্যাড করতে চাও ভাই? এভাবে কোড পাঠাও:\n`P1 C1 L1-3` (বা `Math Ch2 L1`)")
+
+    if user_text == '📺 CLASS ডান করো':
+        user_data["current_state"] = "WAITING_FOR_CLASS"
+        return await update.message.reply_text("📺 কোন লেকচারের ক্লাস শেষ করলি ভাই? কোড দে: (e.g. `P1 C1 L1`)")
+
+    if user_text == '📝 NOTE ডান করো':
+        user_data["current_state"] = "WAITING_FOR_NOTE"
+        return await update.message.reply_text("📝 কোন লেকচারের নোট রিভিশন ডান ভাই? কোড দে: (e.g. `P1 C1 L1`)")
+
+    if user_text == '🎯 PRACTICE ডান করো':
+        user_data["current_state"] = "WAITING_FOR_PRACTICE"
+        return await update.message.reply_text("🎯 কোন লেকচারের প্র্যাকটিস কোয়েশ্চেন ওড়ালি? কোড দে: (e.g. `P1 C1 L1`)")
+
+    if user_text == '🏆 EXAM ডান করো':
+        user_data["current_state"] = "WAITING_FOR_EXAM"
+        return await update.message.reply_text("🏆 কোন লেকচারের এক্সাম ডান করলি ভাই? কোড দে: (e.g. `P1 C1 L1`)")
+
+    # 3. স্টেট মেশিন ডেটা প্রসেসরস
+    state = user_data["current_state"]
+    
+    if state == "WAITING_FOR_TARGET":
         user_data["daily_target_raw"] = user_text
-        user_data["is_waiting_for_target"] = False
+        user_data["current_state"] = "MAIN_MENU"
         
         current_jobs = context.job_queue.get_jobs_by_name("hourly_tracker")
         for job in current_jobs: job.schedule_removal()
-            
         context.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
         save_target_to_sheet(user_text)
         
         stats_str, recent_pending, recap_item = process_ai_insights()
         bd_time = get_bd_time().strftime("%I:%M %p")
-        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=f"I have set my target to: {user_text}",
@@ -322,10 +348,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 temperature=0.7,
             ),
         )
-        await update.message.reply_text(response.text, parse_mode="Markdown")
-        return
+        return await update.message.reply_text(response.text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-    # 🚀 সাধারণ চ্যাট মেকানিজম (AI রিপ্লাই বাগ ফিক্সড)
+    if state == "WAITING_FOR_ADD": return await process_dynamic_add(update, user_text)
+    if state == "WAITING_FOR_CLASS": return await process_dynamic_done(update, user_text, "class")
+    if state == "WAITING_FOR_NOTE": return await process_dynamic_done(update, user_text, "note")
+    if state == "WAITING_FOR_PRACTICE": return await process_dynamic_done(update, user_text, "practice")
+    if state == "WAITING_FOR_EXAM": return await process_dynamic_done(update, user_text, "exam")
+
+    # 4. স্ল্যাশ কমান্ড ম্যানুয়াল ফিল্টার হ্যান্ডলিং (যেমন: /report p1)
+    if user_text.startswith('/report') or user_text.startswith('/view'):
+        parts = user_text.split(" ")
+        f_arg = parts[1] if len(parts) > 1 else ""
+        return await view_syllabus_smart(update, f_arg)
+
+    # 5. সাধারণ চ্যাট মোড উইথ জিতু ভাইয়া
     stats_str, recent_pending, recap_item = process_ai_insights()
     bd_time = get_bd_time().strftime("%I:%M %p")
     try:
@@ -338,7 +375,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         await update.message.reply_text(response.text, parse_mode="Markdown")
-    except Exception as e: 
+    except Exception as e:
         logging.error(f"Gemini Chat Error: {e}")
         await update.message.reply_text("নেটওয়ার্ক একটু জ্যাম ভাই, আবার বল তো?")
 
@@ -348,15 +385,10 @@ def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", handle_status_command))
-    app.add_handler(CommandHandler("plan", handle_plan_command))
-    app.add_handler(CommandHandler("report", view_syllabus))
-    app.add_handler(CommandHandler("add", add_syllabus))
-    app.add_handler(CommandHandler("done", done_syllabus))
-    app.add_handler(CommandHandler("stop_plan", stop_plan))
+    app.add_handler(CommandHandler("stop_plan", stop_plan_engine))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Jeetu Bhaiya Engine is back with full emotion...")
+    print("Jeetu Bhaiya Smart State Machine Bot is running live...")
     app.run_polling()
 
 if __name__ == '__main__':
