@@ -13,7 +13,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # API Keys & Security Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 123456789)) # <--- তোমার ID এখানে বসাও
+ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 123456789)) # <--- এখানে তোমার ID বসাবে
 
 # Initialize Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -28,23 +28,24 @@ user_data = {
     "daily_target": "No target set yet for today."
 }
 
+# উন্নত প্রম্পট ও নিখুঁত চ্যাট এক্সাম্পল (Few-Shot Prompting)
 SYSTEM_PROMPT = """
-You are 'Khayalamu', an elite, strict yet loving personal AI Mentor for a Bangladeshi student. The student has a backlog of 30 online classes across Physics, Chemistry, Biology, and Math.
+You are 'Khayalamu', an elite, elder-sibling-like personal AI Mentor for a Bangladeshi student preparing for competitive exams. 
 
-Current Stats:
+Current Stats of the student:
 {status_str}
 
-### LANGUAGE & TONE RULES (CRITICAL):
-- ALWAYS speak in 100% NATURAL, CASUAL, and COLLOQUIAL BENGALI (খাঁটি বাংলা ভাষা ও ফন্ট)। 
-- NEVER use English or Banglish letters in your main conversation.
-- NEVER mix Hindi, Urdu, or broken Google-translated words (e.g., NEVER say "thik hai", "phir theko", "baksho", "ghumke jete hobe", "আহাইন্ন")।
-- Speak EXACTLY like a real supportive Bangladeshi big brother, senior, or personal coach (e.g., use phrases like "আরে ভাই", "চিল করো", "পড়তে বসো", "একটু ব্রেক নাও", "চা খেয়ে আসো", "ফাঁকিবাজি বন্ধ করো")।
-- Keep responses short, bold, and highly motivating. Use proper emojis.
+### LANGUAGE & TONE RULES:
+- STRICTLY SPEAK IN 100% NATURAL, CASUAL, COLLOQUIAL BANGLADESHI BENGALI (খাঁটি বাংলা ভাষা ও ফন্ট)।
+- NEVER mix Hindi/Urdu words. Never use Google-translated alien words like "আহাইন্ন", "আওআমায়ের", "বাকশো", "ছুটি নিই না"।
+- Speak exactly like a real Bangladeshi elder brother or close mentor guiding a younger brother. Use terms like "আরে ভাই", "শোনো", "পড়তে বসো", "ফাঁকিবাজি বন্ধ করো", "চিল করো"।
 
-### BREAK & TARGET RULES:
-- If the student says they are tired or 'bhalo lagtese na', give them a logical 15-minute offline relaxing task in beautiful natural Bengali.
-- Provide a clear, actionable micro-tip (e.g., "ফোনটা দূরে রেখে ৫ মিনিট হেঁটে আসো", "চোখে মুখে পানি দাও")।
-- Remind them of their daily target if they are slacking off.
+### FEW-SHOT EXAMPLES (How you must reply):
+User: vallagtise na ki korbo?
+AI: আরে ভাই, পড়তে কি সবসময় ভালো লাগে? মনকে একটু শক্ত করো। ফোনটা দূরে রেখে চোখে-মুখে পানি দিয়ে আসো। ৫ মিনিট একটু হেঁটে এসে আবার টেবিলে বসো। আজকের লক্ষ্য পূরণ করতে হবে তো!
+
+User: tired lage re bhai, break chai.
+AI: ঠিক আছে ভাই, একটানা পড়লে টায়ার্ড লাগা স্বাভাবিক। একটা ১৫ মিনিটের কড়া ব্রেক নাও। একটু চা খেয়ে আসতে পারো, কিন্তু কোনোভাবেই সোশ্যাল মিডিয়া স্ক্রোল করা যাবে না। ১৫ মিনিট পর এসে আমাকে জানাও!
 """
 
 def run_dummy_server():
@@ -89,9 +90,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# --- REMINDER CODES ---
+# --- FIXED REMINDER CODES ---
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """এটি নির্দিষ্ট সময়ে বা টেস্ট করার সময় রিমাইন্ডার মেসেজ পাঠাবে"""
     status_str = await get_status_str()
     reminder_msg = (
         f"🚨 **ভাই! আজকের টার্গেটের কী অবস্থা?**\n\n"
@@ -102,9 +102,9 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reminder_msg, parse_mode="Markdown")
 
 async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """১০ সেকেন্ডের রিমাইন্ডার টেস্ট করার সিক্রেট কমান্ড"""
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    await update.message.reply_text("⏳ রিমাইন্ডার টেস্ট চালু হয়েছে! ঠিক ১০ সেকেন্ড পর বোট তোমাকে নিজে থেকে নক দেবে...")
+    await update.message.reply_text("⏳ রিমাইন্ডার ইঞ্জিন টেস্ট করা হচ্ছে... ঠিক ১০ সেকেন্ড পর বোট নিজে থেকে নোটিফিকেশন পাঠাবে।")
+    # ১০ সেকেন্ডের জন্য টাস্ক কিউতে রান করা
     context.job_queue.run_once(send_reminder, 10)
 # ----------------------
 
@@ -157,7 +157,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
                 {"role": "user", "content": ai_input}
             ],
-            model="llama-3.3-70b-versatile", # ল্যাঙ্গুয়েজ ফিক্স করার জন্য বড় ও বুদ্ধিমান মডেল
+            model="qwen/qwen3-32b", # স্ক্রিনশট অনুযায়ী বাংলা ভাষার জন্য বেস্ট এভেইলেবল মডেল সেট করা হলো
         )
         reply = chat_completion.choices[0].message.content
         if subject:
@@ -173,20 +173,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
-    # JobQueue সাপোর্ট সহ অ্যাপ বিল্ড
+    # 🔒 রিমাইন্ডার জিম কিউ (JobQueue) পারফেক্টলি ইনিশিয়ালাইজ করার সঠিক আর্কিটেকচার
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    job_queue = app.job_queue
-
-    # প্রতিদিন দুপুর ৩টা এবং রাত ৯টায় রিমাইন্ডার সেট (বাংলাদেশ টাইম অনুযায়ী সেট করতে পারো)
-    # এখানে UTC টাইম অনুযায়ী করা (বাংলাদেশ টাইম থেকে ৬ ঘণ্টা পিছিয়ে দিতে হয়)
-    job_queue.run_daily(send_reminder, time=datetime.time(hour=9, minute=0))   # 9:00 UTC = 3:00 PM BD
-    job_queue.run_daily(send_reminder, time=datetime.time(hour=15, minute=0)) # 15:00 UTC = 9:00 PM BD
+    
+    # ডেইলি রিমাইন্ডার শিডিউল (দুপুর ৩টা ও রাত ৯টা বাংলাদেশ সময়)
+    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=9, minute=0))   # 3:00 PM BD Time
+    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=15, minute=0)) # 9:00 PM BD Time
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test_remind", test_reminder_command)) # সিক্রেট টেস্ট কমান্ড
+    app.add_handler(CommandHandler("test_remind", test_reminder_command)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot is running with Reminder System...")
+    print("Bot is running with Fixed Reminder Engine...")
     app.run_polling()
 
 if __name__ == '__main__':
