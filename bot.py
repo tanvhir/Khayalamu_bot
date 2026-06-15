@@ -5,20 +5,21 @@ import datetime
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from groq import Groq
+from google import genai
+from google.genai import types
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # API Keys & Security Configuration
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-# 🔒 এখানে ১২৩৪৫৬৭৮৯ কেটে তোমার নিজের চ্যাট আইডি বসাও (তাহলে আর লক দেখাবে না)
-ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 123456789)) 
+# 🔒 এখানে তোমার আসল টেলিগ্রাম চ্যাট আইডি বসাও (যাতে লক না দেখায়)
+ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337)) 
 
-# Initialize Groq Client
-groq_client = Groq(api_key=GROQ_API_KEY)
+# Initialize Gemini Client
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # State Management (Memory)
 user_data = {
@@ -30,24 +31,18 @@ user_data = {
     "daily_target": "No target set yet for today."
 }
 
-# পারফেক্ট খাঁটি বাংলা প্রম্পট ও চ্যাট এক্সাম্পল
+# খাঁটি বাংলা সিস্টেম ইনস্ট্রাকশন
 SYSTEM_PROMPT = """
-You are 'Khayalamu', an elite personal AI Mentor for a Bangladeshi student preparing for competitive exams. 
+You are 'Khayalamu', an elite, strict yet loving personal AI Mentor for a Bangladeshi student preparing for exams. 
 
-Current Stats of the student:
+### LANGUAGE & TONE RULES (CRITICAL):
+- ALWAYS speak in 100% NATURAL, CASUAL, and COLLOQUIAL BANGLADESHI BENGALI (খাঁটি বাংলাদেশি বন্ধুদের বা বড় ভাইদের মতো ইনফরমাল বাংলা ভাষা)।
+- NEVER use bookish or literal Google-translated words (e.g., NEVER say "নিঃশ্বাস সংক্রমণ", "মানসিকভাবে থাকবে", "শিক্ষা সর্বোচ্চ আছে")।
+- Speak EXACTLY like a supportive Bangladeshi big brother, senior, or personal coach. Use words like "আরে ভাই", "শোনো", "পড়তে বসো", "একটু ব্রেক নাও", "চা খেয়ে আসো", "ফাঁকিবাজি বন্ধ করো", "চিল করো"।
+- Keep your answers short, clear, full of emojis, and highly motivating.
+
+### CURRENT STUDENT STATUS:
 {status_str}
-
-### LANGUAGE & TONE RULES:
-- STRICTLY SPEAK IN 100% NATURAL, CASUAL, COLLOQUIAL BANGLADESHI BENGALI (খাঁটি বাংলা ভাষা ও ফন্ট)।
-- NEVER mix Hindi/Urdu words. Never use Google-translated words like "আহাইন্ন", "আওআমায়ের", "শিক্ষা সর্বোচ্চ আছে"।
-- Speak exactly like a real Bangladeshi elder brother or close mentor guiding a younger brother. Use terms like "আরে ভাই", "শোনো", "পড়তে বসো", "ফাঁকিবাজি বন্ধ করো", "চিল করো"।
-
-### FEW-SHOT EXAMPLES (How you must reply):
-User: vallagtise na ki korbo?
-AI: আরে ভাই, পড়তে কি সবসময় ভালো লাগে? মনকে একটু শক্ত করো। ফোনটা দূরে রেখে চোখে-মুখে পানি দিয়ে আসো। ৫ মিনিট একটু হেঁটে এসে আবার টেবিলে বসো। আজকের লক্ষ্য পূরণ করতে হবে তো!
-
-User: tired lage re bhai, break chai.
-AI: ঠিক আছে ভাই, একটানা পড়লে টায়ার্ড লাগা স্বাভাবিক। একটা ১৫ মিনিটের কড়া ব্রেক নাও। একটু চা খেয়ে আসতে পারো, কিন্তু কোনোভাবেই সোশ্যাল মিডিয়া স্ক্রোল করা যাবে না। ১৫ মিনিট পর এসে আমাকে জানাও!
 """
 
 def run_dummy_server():
@@ -87,12 +82,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_msg = (
         "👋 **আসসালামু আলাইকুম ভাই! আমি তোমার এআই মেন্টর 'Khayalamu'।**\n\n"
-        "তোমার ৩০টা ক্লাসের ব্যাকলগ শেষ করার মিশনে আমি তোমার সাথে আছি।\n"
-        "👇 বাটন চাপো আর পড়ালেখা শুরু করো:"
+        "গুগল জেমিনির পাওয়ার নিয়ে এখন আমি লাইনে আছি। পড়ালেখার কী অবস্থা বলো?\n"
+        "👇 নিচের বাটনগুলো ব্যবহার করতে পারো:"
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
-# --- FIXED REMINDER CODES ---
+# --- ⏰ REMINDER SYSTEM ---
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     status_str = await get_status_str()
     reminder_msg = (
@@ -104,16 +99,15 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE):
     try:
         await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reminder_msg, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Reminder send failed: {e}")
+        logging.error(f"Reminder failed: {e}")
 
 async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
-    await update.message.reply_text("⏳ রিমাইন্ডার ইঞ্জিন টেস্ট করা হচ্ছে... ঠিক ১০ সেকেন্ড পর বোট নিজে থেকে নোটিফিকেশন পাঠাবে।")
+    await update.message.reply_text("⏳ জেমিনি রিমাইন্ডার ইঞ্জিন টেস্ট হচ্ছে... ঠিক ১০ সেকেন্ড পর বোট নিজে থেকে মেসেজ দেবে!")
     context.job_queue.run_once(send_reminder, 10)
-# ----------------------
+# ---------------------------
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Security Lock Check
     if update.effective_chat.id != ALLOWED_CHAT_ID:
         await update.message.reply_text("❌ এই বোটটি লক করা আছে।")
         return
@@ -128,67 +122,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif user_text == '🎯 আজকের টার্গেট সেট':
         user_data["daily_target"] = "Waiting for your target..."
-        await update.message.reply_text("📝 **আজকে তোমার টার্গেট কী ভাই?**\nঠিকঠাক লিখে পাঠাও (যেমন: Physics Ch 1, Chem Lecture 1) — আমি মনে রাখব!")
+        await update.message.reply_text("📝 **আজকে তোমার টার্গেট কী ভাই?**\nলিখে পাঠাও, আমি মনে রাখছি!")
         return
 
     if user_data["daily_target"] == "Waiting for your target...":
         user_data["daily_target"] = user_text
-        await update.message.reply_text(f"🚀 **টার্গেট সেট হয়ে গেছে ভাই!**\n\n🏆 *আজকের টার্গেট:* `{user_text}`\n\nআমি মনে রাখলাম। এবার ফাঁকিবাজি না করে ধুমায়া পড়া শেষ করো!")
+        await update.message.reply_text(f"🚀 **টার্গেট সেট হয়ে গেছে ভাই!**\n\n🏆 *আজকের টার্গেট:* `{user_text}`\n\nএবার পড়তে বসে যাও!")
         return
 
+    # সাবজেক্ট আপডেট হ্যান্ডলিং
     if user_text == '✅ শেষ: Physics':
-        user_data["physics"] += 1
-        user_data["backlog_left"] -= 1
-        subject = "Physics"
+        user_data["physics"] += 1; user_data["backlog_left"] -= 1; subject = "Physics"
     elif user_text == '✅ শেষ: Chemistry':
-        user_data["chemistry"] += 1
-        user_data["backlog_left"] -= 1
-        subject = "Chemistry"
+        user_data["chemistry"] += 1; user_data["backlog_left"] -= 1; subject = "Chemistry"
     elif user_text == '✅ শেষ: Biology':
-        user_data["biology"] += 1
-        user_data["backlog_left"] -= 1
-        subject = "Biology"
+        user_data["biology"] += 1; user_data["backlog_left"] -= 1; subject = "Biology"
     elif user_text == '✅ শেষ: Math':
-        user_data["math"] += 1
-        user_data["backlog_left"] -= 1
-        subject = "Math"
+        user_data["math"] += 1; user_data["backlog_left"] -= 1; subject = "Math"
 
     status_str = await get_status_str()
-    ai_input = f"I just finished 1 {subject} class, including notes, practice, and exam!" if subject else user_text
+    ai_input = f"I just finished 1 {subject} class!" if subject else user_text
 
     try:
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT.format(status_str=status_str)},
-                {"role": "user", "content": ai_input}
-            ],
-            model="qwen-2.5-32b", # <--- Groq-এর অফিশিয়াল সঠিক Qwen মডেল আইডি সেট করা হলো
+        # জেমিনি এপিআই কল করার নতুন স্ট্যান্ডার্ড ফরম্যাট
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=ai_input,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT.format(status_str=status_str),
+                temperature=0.7,
+            ),
         )
-        reply = chat_completion.choices[0].message.content
+        reply = response.text
         if subject:
             reply += f"\n\n{status_str}"
         await update.message.reply_text(reply, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Groq Error: {e}")
+        logging.error(f"Gemini Error: {e}")
         if subject:
-            await update.message.reply_text(f"✅ {subject} এর প্রোগ্রেস সেভ হইছে ভাই!\n\n{status_str}")
+            await update.message.reply_text(f"✅ {subject} আপডেট হয়েছে ভাই!\n\n{status_str}")
         else:
-            await update.message.reply_text("🤖 'Khayalamu' ভাবতেছে... কিন্তু Groq API লাইনে পাচ্ছে না।")
+            await update.message.reply_text("🤖 জেমিনি একটু জ্যামে আছে ভাই, আবার ট্রাই করো!")
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # রিমাইন্ডার শিডিউল
-    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=9, minute=0))   # 3:00 PM BD
-    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=15, minute=0)) # 9:00 PM BD
+    # অটো রিমাইন্ডার শিডিউল (দুপুর ৩টা ও রাত ৯টা)
+    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=9, minute=0))
+    app.job_queue.run_daily(send_reminder, time=datetime.time(hour=15, minute=0))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test_remind", test_reminder_command)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Bot is running with Fixed Qwen Engine...")
+    print("Bot is running with Pure Gemini Engine...")
     app.run_polling()
 
 if __name__ == '__main__':
