@@ -18,7 +18,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337))
 
-OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+OPENROUTER_MODEL = "nvidia/llama-nemotron-rerank-vl-1b-v2:free"
 
 # 🧠 State & Memory
 user_data = {
