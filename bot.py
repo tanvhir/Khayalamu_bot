@@ -27,28 +27,133 @@ OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
 user_data = {
     "daily_target_raw": "No target set yet.",
     "current_state": "NORMAL",
-    "chat_history": []  # শর্ট-টার্ম মেমোরির জন্য
+    "chat_history": []
 }
+
+MAX_HISTORY_LENGTH = 12  # শেষ ৬টি ইউজার-বট কনভার্সেশন মনে রাখবে
 
 # 📚 মেগা সিলেবাস মেমোরি
 user_syllabus = {}
 
-MAX_HISTORY_LENGTH = 12  # শেষ ৬টি ইউজার-বট কনভার্সেশন মনে রাখবে
+# 📖 চ্যাপ্টার ডিকশনারি (শর্টকোড টু রিয়েল নেম)
+# তুমি চাইলে ভবিষ্যতে এখানে আরও চ্যাপ্টার অ্যাড করতে পারবে
+CHAPTER_NAMES = {
+    # Physics 1st Paper
+    "P1_C1": "ভৌত জগৎ ও পরিমাপ",
+    "P1_C2": "ভেক্টর",
+    "P1_C3": "গতিবিদ্যা",
+    "P1_C4": "নিউটনীয় বলবিদ্যা",
+    "P1_C5": "কাজ, শক্তি ও ক্ষমতা",
+    "P1_C6": "মহাকর্ষ ও অভিকর্ষ",
+    "P1_C7": "পদার্থের গাঠনিক ধর্ম",
+    "P1_C8": "পর্যাবৃত্ত গতি",
+    "P1_C9": "তরঙ্গ",
+    "P1_C10": "আদর্শ গ্যাস ও গ্যাসের গতিতত্ত্ব",
 
-# 🚀 અપডেটেড সিস্টেম প্রম্পট (আসল জিতু ভাইয়া পার্সোনা)
+    # Physics 2nd Paper
+    "P2_C1": "তাপগতিবিদ্যা",
+    "P2_C2": "স্থির তড়িৎ",
+    "P2_C3": "চল তড়িৎ",
+    "P2_C4": "তড়িৎ প্রবাহের চৌম্বক ক্রিয়া ও চৌম্বকত্ব",
+    "P2_C5": "তড়িৎচুম্বকীয় আবেশ ও পরিবর্তী প্রবাহ",
+    "P2_C6": "জ্যামিতিক আলোকবিজ্ঞান",
+    "P2_C7": "ভৌত আলোকবিজ্ঞান",
+    "P2_C8": "আধুনিক পদার্থবিজ্ঞানের সূচনা",
+
+    # Chemistry 1st Paper
+    "C1_C1": "ল্যাবরেটরির নিরাপদ ব্যবহার",
+    "C1_C2": "গুণগত রসায়ন",
+    "C1_C3": "মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন",
+    "C1_C4": "রাসায়নিক পরিবর্তন",
+    "C1_C5": "কর্মমুখী রসায়ন",
+
+    # Chemistry 2nd Paper
+    "C2_C1": "পরিবেশ রসায়ন",
+    "C2_C2": "জৈব রসায়ন",
+    "C2_C3": "পরিমাণগত রসায়ন",
+    "C2_C4": "তড়িৎ রসায়ন",
+    "C2_C5": "অর্থনৈতিক রসায়ন",
+
+    # Mathematics 1st Paper
+    "M1_C1": "ম্যাট্রিক্স ও নির্ণায়ক",
+    "M1_C2": "সরলরেখা",
+    "M1_C3": "বৃত্ত",
+    "M1_C4": "বিন্যাস ও সমাবেশ",
+    "M1_C5": "ত্রিকোণমিতিক অনুপাত",
+    "M1_C6": "সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত",
+    "M1_C7": "ফাংশন ও ফাংশনের লেখচিত্র",
+    "M1_C8": "অন্তর্বর্তী ও বিপরীত ত্রিকোণমিতিক ফাংশন",
+    "M1_C9": "অন্তরীকরণ",
+    "M1_C10": "যোগজীকরণ",
+
+    # Mathematics 2nd Paper
+    "M2_C1": "বাস্তব সংখ্যা ও অসমতা",
+    "M2_C2": "বহুপদী ও বহুপদী সমীকরণ",
+    "M2_C3": "জটিল সংখ্যা",
+    "M2_C4": "দ্বিপদী বিস্তৃতি",
+    "M2_C5": "কণিক",
+    "M2_C6": "স্থিতিবিদ্যা",
+    "M2_C7": "সমতলে বস্তুকণার গতি",
+    "M2_C8": "সম্ভাবনা",
+    "M2_C9": "পরিসংখ্যান",
+
+    # Biology 1st Paper
+    "B1_C1": "কোষ ও এর গঠন",
+    "B1_C2": "কোষ বিভাজন",
+    "B1_C3": "কোষ রসায়ন",
+    "B1_C4": "অণুজীব",
+    "B1_C5": "শৈবাল ও ছত্রাক",
+    "B1_C6": "ব্রায়োফাইটা ও টেরিডোফাইটা",
+    "B1_C7": "নগ্নবীজী ও আবৃতবীজী উদ্ভিদ",
+    "B1_C8": "টিস্যু ও টিস্যুতন্ত্র",
+    "B1_C9": "উদ্ভিদ শারীরতত্ত্ব",
+    "B1_C10": "উদ্ভিদ প্রজনন",
+    "B1_C11": "জীবপ্রযুক্তি",
+
+    # Biology 2nd Paper
+    "B2_C1": "প্রাণীর বিভিন্নতা ও শ্রেণিবিন্যাস",
+    "B2_C2": "প্রাণীর পরিচিতি",
+    "B2_C3": "পরিপাক ও শোষণ",
+    "B2_C4": "রক্ত ও সঞ্চালন",
+    "B2_C5": "শ্বাসক্রিয়া ও শ্বসন",
+    "B2_C6": "বর্জ্য ও নিষ্কাশন",
+    "B2_C7": "চলন ও অঙ্গচালনা",
+    "B2_C8": "সমন্বয় ও নিয়ন্ত্রণ",
+    "B2_C9": "মানব জীবনের ধারাবাহিকতা",
+    "B2_C10": "মানবদেহের প্রতিরক্ষা",
+    "B2_C11": "জিনতত্ত্ব ও বিবর্তন",
+    "B2_C12": "প্রাণীর আচরণ",
+    "B2_C13": "জীবের পরিবেশ, বিস্তার ও সংরক্ষণ"
+}
+
+def get_friendly_name(lecture_key):
+    """P1_C2_L1 কে 'ভেক্টর - লেকচার ১' এ কনভার্ট করবে"""
+    parts = lecture_key.split("_")
+    if len(parts) >= 3:
+        sub_ch = f"{parts[0]}_{parts[1]}"
+        lec = parts[2].replace("L", "লেকচার ")
+        chap_name = CHAPTER_NAMES.get(sub_ch, f"{parts[0]} {parts[1]}")
+        return f"{chap_name} - {lec}"
+    return lecture_key
+
+# 🚀 અપডেটেড সিস্টেম প্রম্পট (আসল জিতু ভাইয়া পার্সোনা + কোড ডিকশনারি)
 SYSTEM_PROMPT = """
 You are 'Jeetu Bhaiya' (from Kota Factory), an elite, deeply empathetic, yet hardcore and practical personal AI Mentor for a Bangladeshi competitive examinee.
 
 ### CORE PERSONA & TONE RULES:
 - STRICTLY speak in NATURAL, CASUAL, COLLOQUIAL BANGLADESHI BENGALI (e.g., তুই/তুমি, ভাই, শোন, প্যারা নাই, চিল কর).
-- Give "Tough Love": Scold if they slack, but SHOW EMPATHY if they are genuinely trying, tired, or studied late at night.
-- ACT LIKE A STRATEGIST: Don't just tell them to "study". Give study hacks (e.g., Pomodoro technique, Active Recall, "take a 10 min break", "solve questions first").
-- AVOID REPETITION: NEVER be a robotic alarm clock. DO NOT repeat the same phrases (like "কড়া চা খা", "২৫ বছর বয়সে আফসোস করবি", "মাঝরাত পর্যন্ত আর X ঘণ্টা বাকি") in every message. Be unpredictable.
+- Give "Tough Love": Scold if they slack, but SHOW EMPATHY if they are genuinely trying.
+- ACT LIKE A STRATEGIST: Give study hacks (Pomodoro, Active Recall).
+- AVOID REPETITION: NEVER be a robotic alarm clock. Don't repeat the same dialogues.
 
-### CONTEXT AWARENESS (MEMORY):
-- You have access to recent Chat History. REMEMBER what the user said previously (e.g., if they were awake at 4 AM planning with you, DO NOT scold them for waking up late at 11 AM).
+### CODE DICTIONARY (CRITICAL):
+The user uses short codes for subjects and chapters. If they say "c2 c1 l1" or "C2 C1 L1", UNDERSTAND they mean a SPECIFIC lecture (e.g., Chemistry 2nd Paper, Chapter 1, Lecture 1).
+- P = Physics, C = Chemistry, M = Math, B = Biology.
+
+### CONTEXT AWARENESS & MEMORY:
+- You have access to recent Chat History. REMEMBER what the user said previously.
 - Current Bangladesh Time: {current_time}
-- Overall Backlog Status: {status_str}
+- Backlog & Pending Lectures Status (Real Chapter Names): {status_str}
 - Today's Target: {daily_target_raw}
 
 ### INSTRUCTION FOR THIS MESSAGE:
@@ -56,12 +161,10 @@ You are 'Jeetu Bhaiya' (from Kota Factory), an elite, deeply empathetic, yet har
 """
 
 def get_bd_time():
-    """বাংলাদেশের বর্তমান সময় অবজেক্ট রিটার্ন করে"""
     return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 
 # --- 🌐 OpenRouter API Integration Engine with Memory ---
 def generate_openrouter_chat(system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
-    """OpenRouter API ব্যবহার করে চ্যাট জেনারেট করার ফাংশন"""
     if not OPENROUTER_API_KEY:
         return "আরে ভাই, তোমার OpenRouter API Key তো সেট করা নাই!"
 
@@ -73,7 +176,6 @@ def generate_openrouter_chat(system_prompt: str, user_message: str, temperature:
         "X-Title": "Jeetu Bhaiya Mentor Bot"
     }
     
-    # মেমোরি ইনজেকশন
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(user_data["chat_history"])
     messages.append({"role": "user", "content": user_message})
@@ -90,11 +192,9 @@ def generate_openrouter_chat(system_prompt: str, user_message: str, temperature:
             res_json = response.json()
             bot_reply = res_json["choices"][0]["message"]["content"]
             
-            # মেমোরি আপডেট
+            # Update memory
             user_data["chat_history"].append({"role": "user", "content": user_message})
             user_data["chat_history"].append({"role": "assistant", "content": bot_reply})
-            
-            # মেমোরি লিমিট কন্ট্রোল
             if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH:
                 user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
                 
@@ -106,7 +206,7 @@ def generate_openrouter_chat(system_prompt: str, user_message: str, temperature:
         logging.error(f"Connection Error: {e}")
         return "নেটওয়ার্ক ড্রপ খাইছে ভাই! আবার ট্রাই কর।"
 
-# --- 📊 ডাইনামিক সিলেবাস অ্যানালিটিক্স ---
+# --- 📊 ডাইনামিক সিলেবাস অ্যানালিটিক্স (with Friendly Names) ---
 def calculate_backlog_metrics():
     total_backlogs = 0
     sub_counts = {"P": 0, "C": 0, "B": 0, "M": 0}
@@ -120,13 +220,21 @@ def calculate_backlog_metrics():
 
 async def get_status_str():
     total_backlogs, sub_counts = calculate_backlog_metrics()
+    
+    pending_list = []
+    for item, status in user_syllabus.items():
+        if any(status.get(t, "Pending") == "Pending" for t in ["class", "note", "practice", "exam"]):
+            pending_list.append(get_friendly_name(item))
+            
+    pending_str = ", ".join(pending_list) if pending_list else "কোনো ব্যাকলগ নাই! সব ক্লিয়ার।"
+
     return (f"বাকি ব্যাকলগ: {total_backlogs}টি লেকচার | "
             f"P: {sub_counts['P']}, C: {sub_counts['C']}, "
-            f"B: {sub_counts['B']}, M: {sub_counts['M']}")
+            f"B: {sub_counts['B']}, M: {sub_counts['M']}\n"
+            f"Pending Chapters: [{pending_str}]")
 
 # --- 🌐 Apps Script Database Sync Engine (OPTIMIZED) ---
 def save_target_to_sheet():
-    """শুধুমাত্র টার্গেট আপডেট হলে এই ফাংশন কল হবে"""
     if not APPS_SCRIPT_URL: return
     try:
         payload = {
@@ -139,7 +247,6 @@ def save_target_to_sheet():
         logging.error(f"Target Save Error: {e}")
 
 def save_single_lecture_to_sheet(lecture_key):
-    """লুপ পরিহার করে শুধুমাত্র নির্দিষ্ট লেকচার আপডেট করবে"""
     if not APPS_SCRIPT_URL: return
     try:
         status = user_syllabus.get(lecture_key, {})
@@ -204,7 +311,7 @@ def get_syllabus_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     user_data["current_state"] = "NORMAL"
-    user_data["chat_history"] = [] # মেমোরি রিসেট
+    user_data["chat_history"] = [] 
     await update.message.reply_text("👋 **আসসালামু আলাইকুম ভাই! আমি তোমার মেন্টর 'Jeetu Bhaiya'**\n\nসিস্টেম এবং মেমোরি আপডেটেড! চলো শুরু করি।", reply_markup=get_main_keyboard())
 
 # --- 📚 রেঞ্জ পার্সার ---
@@ -234,8 +341,15 @@ async def view_syllabus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bar = "█" * (percentage // 10) + "░" * (10 - (percentage // 10))
 
     report = f"📚 **সিলেবাস রিপোর্ট:**\n📈 Progress: `[{bar}] {percentage}%`\n────────────────\n"
+    
     for item, status in sorted(user_syllabus.items()):
-        report += f"• **{item.replace('_', ' ')}** ➔ 📺{'🟢' if status.get('class')=='Done' else '🔴'} 📝{'🟢' if status.get('note')=='Done' else '🔴'} 🎯{'🟢' if status.get('practice')=='Done' else '🔴'} 🏆{'🟢' if status.get('exam')=='Done' else '🔴'}\n"
+        real_name = get_friendly_name(item)
+        c_emo = '🟢' if status.get('class')=='Done' else '🔴'
+        n_emo = '🟢' if status.get('note')=='Done' else '🔴'
+        p_emo = '🟢' if status.get('practice')=='Done' else '🔴'
+        e_emo = '🟢' if status.get('exam')=='Done' else '🔴'
+        report += f"• **{real_name}** ➔ 📺{c_emo} 📝{n_emo} 🎯{p_emo} 🏆{e_emo}\n"
+        
     await update.message.reply_text(report, parse_mode="Markdown")
 
 async def stop_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -253,10 +367,7 @@ async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
 
     status_str = await get_status_str()
     bd_time = get_bd_time().strftime("%I:%M %p")
-    
-    # রিমাইন্ডারের জন্য ডাইনামিক প্রম্পট ইনজেকশন
-    context_reason = "This is an automated 1-hour check. Give a VERY SHORT (1-3 lines max), punchy reminder based on the time. DO NOT write long paragraphs. If they just started a few hours ago, give a study hack. If it's very late, tell them to wrap up."
-    
+    context_reason = "This is an automated 1-hour check. Give a VERY SHORT (1-3 lines max), punchy reminder based on the time. Use the exact Chapter Names from the status string. DO NOT write long paragraphs."
     sys_prompt = SYSTEM_PROMPT.format(current_time=bd_time, status_str=status_str, daily_target_raw=user_data["daily_target_raw"], context_reason=context_reason)
 
     try:
@@ -296,31 +407,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state_map = {"Add": "WAITING_FOR_ADD", "Class": "WAITING_FOR_CLASS", "Note": "WAITING_FOR_NOTE", "Practice": "WAITING_FOR_PRACTICE", "Exam": "WAITING_FOR_EXAM"}
         state_key = next(k for k in state_map if k in user_text)
         user_data["current_state"] = state_map[state_key]
-        return await update.message.reply_text(f"কোড দাও ভাই। উদাহরণ: `P1 C6 L1-5`")
+        return await update.message.reply_text(f"কোড দাও ভাই। উদাহরণ: `P1 C2 L1-5` (ভেক্টর লেকচার ১ থেকে ৫)")
 
     # ডাটা প্রসেসিং স্টেট
     if current_state == "WAITING_FOR_TARGET":
         user_data["daily_target_raw"] = user_text
         user_data["current_state"] = "NORMAL"
-        save_target_to_sheet() # শুধুমাত্র টার্গেট সেভ হবে
+        save_target_to_sheet()
 
         for job in context.job_queue.get_jobs_by_name("hourly_tracker"): job.schedule_removal()
         context.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
 
-        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), status_str=await get_status_str(), daily_target_raw=user_data["daily_target_raw"], context_reason="The user just set this target. Acknowledge it, give a short strategy, and tell them to start.")
+        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), status_str=await get_status_str(), daily_target_raw=user_data["daily_target_raw"], context_reason="The user just set this target. Acknowledge it using the chapter names, give a short strategy, and tell them to start.")
         response_text = generate_openrouter_chat(sys_prompt, f"Set target: {user_text}", 0.7)
         return await update.message.reply_text(response_text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
     elif current_state == "WAITING_FOR_ADD":
         sub, ch, lectures = extract_lecture_details(user_text)
         if not sub: return await update.message.reply_text("❌ ফরম্যাট ভুল!")
+        
+        added_names = []
         for lec in lectures:
             key = f"{sub}_{ch}_{lec}"
             if key not in user_syllabus:
                 user_syllabus[key] = {"class": "Pending", "note": "Pending", "practice": "Pending", "exam": "Pending"}
-                save_single_lecture_to_sheet(key) # শুধুমাত্র নতুন লেকচার সেভ
+                save_single_lecture_to_sheet(key)
+                added_names.append(get_friendly_name(key))
+                
         user_data["current_state"] = "NORMAL"
-        return await update.message.reply_text(f"✅ যোগ করা হয়েছে!", reply_markup=get_main_keyboard())
+        msg = f"✅ যোগ করা হয়েছে!\n" + "\n".join([f"📎 {n}" for n in added_names]) if added_names else "⚠ লেকচার অলরেডি আছে!"
+        return await update.message.reply_text(msg, reply_markup=get_main_keyboard())
 
     elif current_state.startswith("WAITING_FOR_"):
         sub, ch, lectures = extract_lecture_details(user_text)
@@ -328,18 +444,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task_type = current_state.split("_")[-1].lower()
         
         updated = 0
+        last_name = ""
         for lec in lectures:
             key = f"{sub}_{ch}_{lec}"
             if key in user_syllabus:
                 user_syllabus[key][task_type] = "Done"
-                save_single_lecture_to_sheet(key) # শুধুমাত্র যেই লেকচার আপডেট হলো সেটা সেভ হবে
+                save_single_lecture_to_sheet(key)
                 updated += 1
+                last_name = get_friendly_name(key)
         
         user_data["current_state"] = "NORMAL"
-        return await update.message.reply_text(f"🎉 {updated}টি লেকচারের {task_type.upper()} ডান!", reply_markup=get_main_keyboard())
+        if updated > 0:
+            return await update.message.reply_text(f"🎉 ওড়াধুড়া! **{last_name}** সহ {updated}টি লেকচারের **{task_type.upper()}** ডান!", reply_markup=get_main_keyboard())
+        else:
+            return await update.message.reply_text("❌ লেকচার খুঁজে পাওয়া যায়নি! আগে Add New Lecture করো।", reply_markup=get_main_keyboard())
 
     # নরমাল চ্যাট রাউটিং
-    sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), status_str=await get_status_str(), daily_target_raw=user_data["daily_target_raw"], context_reason="Respond naturally to the user. Guide them, scold them, or appreciate them based on their message and previous context.")
+    sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), status_str=await get_status_str(), daily_target_raw=user_data["daily_target_raw"], context_reason="Respond naturally to the user. Use Real Chapter Names. Guide them, scold them, or appreciate them based on their message and context.")
     response_text = generate_openrouter_chat(sys_prompt, user_text, 0.7)
     await update.message.reply_text(response_text, parse_mode="Markdown")
 
@@ -355,7 +476,7 @@ def main():
     app.add_handler(CommandHandler("test_remind", test_hourly_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("✅ Optimized Jeetu Bhaiya AI is running...")
+    print("✅ Optimized Jeetu Bhaiya AI (with Friendly Names) is running...")
     app.run_polling()
 
 if __name__ == '__main__':
