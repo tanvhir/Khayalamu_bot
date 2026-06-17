@@ -10,87 +10,78 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
 
-# এনভায়রনমেন্ট ভেরিয়েবল লোড করা
 load_dotenv()
 
-# লগিং সেটআপ
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# API Keys & Security 
+# API Keys & Configurations
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337))
 OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
 
-# State & Memory (V6 টু-টেবিল আর্কিটেকচার এলাইন্ড)
+# Memory State Machine (Isolated Sub-State Engine)
 user_data = {
     "daily_target_raw": "No target set yet.",
-    "current_state": "NORMAL",  # STATES: NORMAL, WAITING_FOR_TARGET, WAITING_FOR_TARGET_UPDATE, WAITING_FOR_KAIZEN, WAITING_FOR_KAIZEN_UPDATE
+    "current_state": "NORMAL", # STATES: NORMAL, STATE_SYLLABUS_MENU, WAITING_FOR_TARGET, WAITING_FOR_TARGET_UPDATE, WAITING_FOR_KAIZEN, WAITING_FOR_KAIZEN_UPDATE, WAITING_FOR_ADD, WAITING_FOR_CLASS, WAITING_FOR_NOTE, WAITING_FOR_PRACTICE, WAITING_FOR_EXAM
     "chat_history": [],
     "kaizen_goals": "কোনো কাইজেন প্ল্যান সেট করা হয়নি।",
     "kaizen_logs": []
 }
-MAX_HISTORY_LENGTH = 12  # [FIXED BUG]: আগের ড্রাফটে এটা গ্লোবাল স্কোপে মিসিং ছিল
+MAX_HISTORY_LENGTH = 12
 
-# তোর ব্রিলিয়ান্ট প্ল্যান অনুযায়ী ২ টেবিল গ্লোবাল ডিকশনারি মেমোরি
-user_chapters = {} # {'P1_C2': {'progress': '1/10', 'note': 'Pending', 'practice': 'Done', 'exam': 'Pending'}}
-user_lectures = {} # {'P1_C2_L1': 'Done', 'P1_C2_L2': 'Pending'}
+user_chapters = {}
+user_lectures = {}
 
 SUBJECT_NAMES = {"P": "PHYSICS", "C": "CHEMISTRY", "M": "MATH", "B": "BIOLOGY"}
 SUBJECT_ICONS = {"P": "🧲", "C": "🧪", "M": "📐", "B": "🧬"}
 
-# ৫৪ চ্যাপ্টারের পলিশ করা ডাটা ম্যাপ
 CHAPTER_NAMES = {
     "P1_C1": "ভৌত জগৎ ও পরিমাপ", "P1_C2": "ভেক্টর", "P1_C3": "গতিবিদ্যা", "P1_C4": "নিউটনীয় বলবিদ্যা",
     "P1_C5": "কাজ, শক্তি ও ক্ষমতা", "P1_C6": "মহাকর্ষ ও অভিকর্ষ", "P1_C7": "পদার্থের গাঠনিক ধর্ম",
-    "P1_C8": "পর্যাবৃত্ত গতি", "P1_C9": "তরঙ্গ", "P1_C10": "আదర్శ গ্যাস ও গ্যাসের গতিতত্ত্ব",
+    "P1_C8": "পর্যাবৃত্ত গতি", "P1_C9": "তরঙ্গ", "P1_C10": "আদর্শ গ্যাস ও গ্যাসের গতিতত্ত্ব",
     "P2_C1": "তাপগতিবিদ্যা", "P2_C2": "স্থির তড়িৎ", "P2_C3": "চল তড়িৎ", "P2_C4": "তড়িৎ প্রবাহের চৌম্বক ক্রিয়া ও চৌম্বকত্ব",
     "P2_C5": "তড়িৎচুম্বকীয় আবেশ ও পরিবর্তী প্রবাহ", "P2_C6": "জ্যামিতিক আলোকবিজ্ঞান", "P2_C7": "ভৌত আলোকবিজ্ঞান", "P2_C8": "আধুনিক পদার্থবিজ্ঞানের সূচনা",
-    "C1_C1": "ল্যাবরেটরির নিরাপদ ব্যবহার", "C1_C2": "গুণগত রসায়ন", "C1_C3": "مৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন", "C1_C4": "রাসায়নিক পরিবর্তন", "C1_C5": "কর্মমুখী রসায়ন",
+    "C1_C1": "ল্যাবরেটরির নিরাপদ ব্যবহার", "C1_C2": "গুণগত রসায়ন", "C1_C3": "মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন", "C1_C4": "রাসায়নিক পরিবর্তন", "C1_C5": "কর্মমুখী রসায়ন",
     "C2_C1": "পরিবেশ রসায়ন", "C2_C2": "জৈব রসায়ন", "C2_C3": "পরিমাণগত রসায়ন", "C2_C4": "তড়িৎ রসায়ন", "C2_C5": "অর্থনৈতিক রসায়ন",
     "M1_C1": "ম্যাট্রিক্স ও নির্ণায়ক", "M1_C2": "সরলরেখা", "M1_C3": "বৃত্ত", "M1_C4": "বিন্যাস ও সমাবেশ", "M1_C5": "ত্রিকোণমিতিক অনুপাত",
-    "M1_C6": "সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত", "M1_C7": "ফাংশন ও ফাংশনের লেখচিত্র", "M1_C8": "انتর্বর্তী ও বিপরীত ত্রিকোণমিতিক ফাংশন", "M1_C9": "অন্টারীকরণ", "M1_C10": "যোগজীকরণ",
-    "M2_C1": "বাস্তব সংখ্যা ও অসমতা", "M2_C2": "বহুপদী ও বহুপদী সমীকরণ", "M2_C3": "জটিল সংখ্যা", "M2_C4": "দ্বিপদী বিস্তৃতি",
+    "M1_C6": "সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত", "M1_C7": "ফাংশন ও ফাংশনের লেখচিত্র", "M1_C8": "বিপরীত ত্রিকোণমিতিক ফাংশন", "M1_C9": "অন্তরীকরণ", "M1_C10": "যোগজীকরণ",
+    "M2_C1": "বাস্তব সংখ্যা ও অসমতা", "M2_C2": "বহুপদী ও বহুপদী সমীকরণ", "M2_C3": "জতিষ্ক সংখ্যা", "M2_C4": "দ্বিপদী বিস্তৃতি",
     "M2_C5": "কণিক", "M2_C6": "স্থিতিবিদ্যা", "M2_C7": "সমতলে বস্তুকণার গতি", "M2_C8": "সম্ভাবনা", "M2_C9": "পরিসংখ্যান",
     "B1_C1": "কোষ ও এর গঠন", "B1_C2": "কোষ বিভাজন", "B1_C3": "কোষ রসায়ন", "B1_C4": "অণুজীব", "B1_C5": "শৈবাল ও ছত্রাক",
     "B1_C6": "ব্রায়োফাইটা ও টেরিডোফাইটা", "B1_C7": "নগ্নবীজী ও আবৃতবীজী উদ্ভিদ", "B1_C8": "টিস্যু ও টিস্যুতন্ত্র", "B1_C9": "উদ্ভিদ শারীরতত্ত্ব", "B1_C10": "উদ্ভিদ প্রজনন", "B1_C11": "জীবপ্রযুক্তি",
     "B2_C1": "প্রাণীর বিভিন্নতা ও শ্রেণিবিন্যাস", "B2_C2": "প্রাণীর পরিচিতি", "B2_C3": "পরিপাক ও শোষণ", "B2_C4": "রক্ত ও সঞ্চালন",
     "B2_C5": "কম্পন ও শ্বসন", "B2_C6": "বর্জ্য ও নিষ্কাশন", "B2_C7": "চলন ও অঙ্গচালনা", "B2_C8": "সমন্বয় ও নিয়ন্ত্রণ",
-    "B2_C9": "মানব জীবনের ধারাবাহিকতা", "B2_C10": "মানবدهহের প্রতিরক্ষা", "B2_C11": "জিনতত্ত্ব ও বিবর্তন", "B2_C12": "প্রাণীর আচরণ", "B2_C13": "জীবের পরিবেশ, বিস্তার ও সংরক্ষণ"
+    "B2_C9": "মানব জীবনের ধারাবাহিকতা", "B2_C10": "মানবদেহের প্রতিরক্ষা", "B2_C11": "জিনতত্ত্ব ও বিবর্তন", "B2_C12": "প্রাণীর আচরণ", "B2_C13": "জীবের পরিবেশ, বিস্তার ও সংরক্ষণ"
 }
 
-# 🚀 SYSTEM PROMPT (জিতু ভাইয়ার ১০০% জেনুইন বাংলাদেশি পারসোনা + V6 ডাইনামিক লাইভ সামারি কনটেক্সট)
-SYSTEM_PROMPT = """
+# 🚀 SYSTEM PROMPT (জিতু ভাইয়ার ১০০% জেনুইন পারসোনা - ডাইনামিকালি ট্রিগারড)
+SYSTEM_PROMPT_BASE = """
 You are 'Jeetu Bhaiya', an elite, deeply empathetic, hardcore, and practical personal AI Mentor for a Bangladeshi second-timer varsity admission candidate.
 
 CORE PROFILE INFO & CONTEXT:
 - Target Exam: Varsity Admission 2026.
 - User Status: Second Timer (High mental pressure, needs systematic guidance, zero room for fake motivation).
-- LIVE PROGRESS SCENARIO: {dynamic_summary_context}  # <--- [FIXED] এই প্লেসহোল্ডারটা মিসিং ছিল ভাই!
+- LIVE PROGRESS SCENARIO: {dynamic_summary_context}
 - User's Custom Kaizen Habits: {kaizen_goals}
 - Recent Kaizen History Logs: {kaizen_logs_raw}
 
 CORE PERSONA & RULES:
 - STRICTLY speak in NATURAL, CASUAL BANGLADESHI BENGALI (তুমি/তুই mix, ভাই, শোন, প্যারা নাই, কিরে).
-- NEVER use markdown formatting like asterisks (**) or hashes (#). Keep it clean.
+- NEVER use markdown formatting like asterisks (**) or hashes (#). Keep it clean and human.
 - Keep responses short, human-like, crisp and direct (Max 3-5 lines). No long essays.
-
-STRICT V4 ACTIONS INTERACTION RULES:
-1. If context_reason says "PARSING_TARGET_UPDATE", evaluate if user succeeded, half-done or failed. End your reply with this tag: <TARGET_PARSE>Done or Half Done or Failed</TARGET_PARSE>
-2. If context_reason says "PARSING_KAIZEN_LOG", evaluate their habit success. End your reply with this tag: <KAIZEN_LOG>goal_name|SUCCESS or FAILURE|Brief note in Bengali</KAIZEN_LOG>
-3. If context_reason says "PARSING_KAIZEN_SET", finalize their new goal. End your reply with this tag: <KAIZEN_UPDATE>Summarized new active goals in Bengali</KAIZEN_UPDATE>
+- Provide "Tough Love": Show empathy for their struggle but hold them strictly accountable.
 
 CONTEXT WINDOW:
 - Current Bangladesh Time: {current_time}
 - Today's Target: {daily_target_raw}
-- Instruction Context: {context_reason}
 """
 
 def get_bd_time():
     return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 
-# --- Database Syncers (V6 ২-টেবিল সামঞ্জস্যতা ব্যাকহ্যান্ড থ্রেডিং) ---
+# --- Database Syncers ---
 def save_memory_to_sheet():
     if not APPS_SCRIPT_URL: return
     try: requests.post(APPS_SCRIPT_URL, json={"chat_id": str(ALLOWED_CHAT_ID), "memory_update": True, "chat_history": user_data["chat_history"], "kaizen_goals": user_data["kaizen_goals"]}, timeout=10)
@@ -136,12 +127,11 @@ def load_from_google_sheet():
                 user_data["kaizen_logs"] = data.get("kaizen_logs", [])
                 user_chapters = data.get("chapters", {})
                 user_lectures = data.get("lectures", {})
-                logging.info("✅ Core Sync Completed with 2-Table Schema Layout!")
+                logging.info("✅ Core Sync Completed with Stable 2-Table Schema Layout!")
     except Exception as e: logging.error(f"Load Error: {e}")
 
 def parse_smart_shortcode(text):
     clean_text = text.strip().upper().replace("_", " ")
-    # বাল্ক রেঞ্জ ডিটেকশন লজিক (যেমন: P1 C2 L1-10)
     match_range = re.search(r"([PCMB])\s*([12])\s*C\s*(\d+)\s*L\s*(\d+)\s*-\s*(\d+)", clean_text)
     if match_range:
         sub_type, paper, ch_num, start_l, end_l = match_range.groups()
@@ -154,22 +144,55 @@ def parse_smart_shortcode(text):
     if lec_num: return "LECTURE", ch_key, f"L{lec_num}"
     return "CHAPTER", ch_key, None
 
-def get_live_summary_string():
+# --- dynamic prompting engine ---
+def get_live_summary_context():
     tot_lec = len(user_lectures)
     done_lec = sum(1 for v in user_lectures.values() if v == "Done")
-    tot_ch = len(user_chapters)
-    done_notes = sum(1 for v in user_chapters.values() if v.get("note") == "Done")
-    return f"Syllabus Lectures Added: {tot_lec}, Completed Classes: {done_lec}, Backlogs: {tot_lec - done_lec}. Total Chapters Created: {tot_ch}, Notes Done: {done_notes}."
+    backlogs = tot_lec - done_lec
+    if tot_lec > 0:
+        return f"ইউজারের সিলেবাসে বর্তমানে {backlogs}টি লেকচার ব্যাকলগ আছে এবং সে আজ '{user_data['daily_target_raw']}' মিশন সেট করেছে।"
+    else:
+        return f"ইউজার এখনো সিলেবাসে কোনো লেকচার অ্যাড করেনি এবং সে আজ '{user_data['daily_target_raw']}' মিশন সেট করেছে।"
 
-# --- OpenRouter AI Core Interceptor ---
-def generate_openrouter_chat(system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
+# --- Adaptive OpenRouter Interceptor (V7) ---
+def generate_openrouter_chat(user_message: str, context_reason: str = "Respond organically as a mentor.") -> str:
     if not OPENROUTER_API_KEY: return "API Key Missing!"
+    
+    # dynamic temperature config based on intent
+    temp = 0.7
+    dynamic_context = get_live_summary_context()
+    system_prompt = SYSTEM_PROMPT_BASE.format(
+        current_time=get_bd_time().strftime("%I:%M %p"),
+        daily_target_raw=user_data["daily_target_raw"],
+        kaizen_goals=user_data["kaizen_goals"],
+        kaizen_logs_raw=json.dumps(user_data["kaizen_logs"][:4]),
+        dynamic_summary_context=dynamic_context
+    )
+
+    # Inject tag pressure only when required on-demand
+    if context_reason == "PARSING_TARGET_UPDATE":
+        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate if user succeeded, half-done or failed. End your reply with this tag EXACTLY:\n<TARGET_PARSE>Done or Half Done or Failed</TARGET_PARSE>"
+        temp = 0.3
+    elif context_reason == "PARSING_KAIZEN_LOG":
+        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate their habit success. End your reply with this tag EXACTLY:\n<KAIZEN_LOG>goal_name|SUCCESS or FAILURE|Brief 2-3 words note in Bengali</KAIZEN_LOG>"
+        temp = 0.3
+    elif context_reason == "PARSING_KAIZEN_SET":
+        system_prompt += "\n\nSTRICT ACTION RULE:\nFinalize their new goal. End your reply with this tag EXACTLY:\n<KAIZEN_UPDATE>Summarized new active goals in Bengali</KAIZEN_UPDATE>"
+        temp = 0.3
+
     messages = [{"role": "system", "content": system_prompt}] + user_data["chat_history"] + [{"role": "user", "content": user_message}]
+    
     try:
-        res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"}, json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temperature}, timeout=25)
+        res = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temp},
+            timeout=25
+        )
         if res.status_code == 200:
             bot_reply = res.json()["choices"][0]["message"]["content"]
             
+            # Bulletproof Regex Parsers
             match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
             if match_up:
                 user_data["kaizen_goals"] = match_up.group(1).strip()
@@ -179,31 +202,36 @@ def generate_openrouter_chat(system_prompt: str, user_message: str, temperature:
             if match_log:
                 try:
                     parts = match_log.group(1).strip().split("|")
-                    if len(parts) >= 3: threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
+                    if len(parts) >= 3: 
+                        threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
                 except Exception: pass
                 bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
             match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
             if match_tgt:
                 parsed_status = match_tgt.group(1).strip()
-                if parsed_status in ["Done", "Completed"]: user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
+                if parsed_status in ["Done", "Completed"]: 
+                    user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
                 threading.Thread(target=save_target_to_sheet, args=(parsed_status,), daemon=True).start()
                 bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
+            # Clean response
             bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
+            
             user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
-            if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
+            if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
+                user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
             
             threading.Thread(target=save_memory_to_sheet, daemon=True).start()
             return bot_reply
     except Exception: pass
-    return "নেটওয়ার্ক ড্রপ খাইছে ভাই! আবার একটু বল তো।"
+    return "নেটওয়ার্ক ড্রপ খাইছে ভাই! আবার একটু বল তো।"
 
+# --- Dashboard formatters ---
 def create_progress_bar(percentage):
     filled = int(percentage // 10)
     return f"[{'█' * filled}{'░' * (10 - filled)}] {int(percentage)}%"
 
-# --- UI Layout Dashboard Formatters (V6 টু-টেবিল ডাটা ড্যাশবোর্ড) ---
 async def generate_premium_status():
     tot_lec = len(user_lectures)
     done_lec = sum(1 for v in user_lectures.values() if v == "Done")
@@ -213,14 +241,12 @@ async def generate_premium_status():
             "M": {"tot_ch":0,"note":0,"practice":0,"exam":0,"tot_l":0,"done_l":0},
             "B": {"tot_ch":0,"note":0,"practice":0,"exam":0,"tot_l":0,"done_l":0}}
             
-    # লেকচার থেকে সাবজেক্ট সামারি কাউন্ট
     for k, v in user_lectures.items():
         sk = k.split("_")[0][0]
         if sk in subs:
             subs[sk]["tot_l"] += 1
             if v == "Done": subs[sk]["done_l"] += 1
             
-    # চ্যাপ্টার শিট থেকে চ্যাপ্টার লেভেল গোল সামারি কাউন্ট
     for ck, info in user_chapters.items():
         sk = ck.split("_")[0][0]
         if sk in subs:
@@ -320,7 +346,7 @@ def get_syllabus_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     user_data["current_state"] = "NORMAL"
-    msg = "কিরে ভাই, আমি তোর মেন্টর জিতু ভাইয়া। নতুন ২-টেবিল সুপার আর্কিটেকচার ডেটাবেজ এখন লাইভ রানিং! কাজ শুরু কর।"
+    msg = "কিরে ভাই, আমি তোর মেন্টর জিতু ভাইয়া। V7 স্টেবল মাস্টার এডিশন সাকসেসফুলি রানিং! কাজ শুরু কর।"
     await update.message.reply_text(msg, reply_markup=get_main_keyboard())
 
 async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -344,70 +370,103 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     state = user_data["current_state"]
 
-    if text == 'Check Status': return await update.message.reply_text(await generate_premium_status())
-    elif text == 'Syllabus Report': return await view_syllabus_tree(update, context)
-    elif text == 'Manage Syllabus': user_data["current_state"] = "NORMAL"; return await update.message.reply_text("সিলেবাসシステム কনফিগার কর:", reply_markup=get_syllabus_keyboard())
-    elif text == 'Back to Main Menu': user_data["current_state"] = "NORMAL"; return await update.message.reply_text("🔙 মূল মেনু", reply_markup=get_main_keyboard())
+    # --- ১. গ্লোবাল মেনু নেভিগেশন (যেকোনো স্টেটে থাকলেও কাজ করবে) ---
+    if text == 'Check Status': 
+        return await update.message.reply_text(await generate_premium_status())
+    elif text == 'Syllabus Report': 
+        return await view_syllabus_tree(update, context)
+    elif text == 'Manage Syllabus': 
+        user_data["current_state"] = "STATE_SYLLABUS_MENU"
+        return await update.message.reply_text("সিলেবাস সিস্টেম কনফিগার কর:", reply_markup=get_syllabus_keyboard())
+    elif text == 'Back to Main Menu': 
+        user_data["current_state"] = "NORMAL"
+        return await update.message.reply_text("🔙 মূল মেনু", reply_markup=get_main_keyboard())
     
-    elif text == 'Set Target': user_data["current_state"] = "WAITING_FOR_TARGET"; return await update.message.reply_text("আজকের মিশন বা টার্গেটটা লিখে দে শুনি?")
-    elif text == 'Update Target': user_data["current_state"] = "WAITING_FOR_TARGET_UPDATE"; return await update.message.reply_text("তোর আজকের টার্গেট কি শেষ করেছিস নাকি আংশিক হয়েছে? ক্যাজুয়ালি বল।")
-    elif text == 'Manage Kaizen': user_data["current_state"] = "WAITING_FOR_KAIZEN"; return await update.message.reply_text("তোর নতুন কাইজেন গোল লাইফস্টাইল অভ্যাসটা কী সেট করতে চাস বল?")
-    elif text == 'Update Kaizen': user_data["current_state"] = "WAITING_FOR_KAIZEN_UPDATE"; return await update.message.reply_text("কালকের কাইজেন গোলের অবস্থা বল, সফল নাকি ব্যর্থ? কী হয়েছিল খুলে বল।")
+    elif text == 'Set Target': 
+        user_data["current_state"] = "WAITING_FOR_TARGET"
+        return await update.message.reply_text("আজকের মিশন বা টার্গেটটা লিখে দে শুনি?")
+    elif text == 'Update Target': 
+        user_data["current_state"] = "WAITING_FOR_TARGET_UPDATE"
+        return await update.message.reply_text("তোর আজকের টার্গেট কি শেষ করেছিস নাকি আংশিক হয়েছে? ক্যাজুয়ালি বল।")
+    elif text == 'Manage Kaizen': 
+        user_data["current_state"] = "WAITING_FOR_KAIZEN"
+        return await update.message.reply_text("তোর নতুন কাইজেন গোল লাইফস্টাইল অভ্যাসটা কী সেট করতে চাস বল?")
+    elif text == 'Update Kaizen': 
+        user_data["current_state"] = "WAITING_FOR_KAIZEN_UPDATE"
+        return await update.message.reply_text("কালকের কাইজেন গোলের অবস্থা বল, সফল নাকি ব্যর্থ? কী হয়েছিল খুলে বল।")
 
-    elif text == 'Add New Lecture': user_data["current_state"] = "WAITING_FOR_ADD"; return await update.message.reply_text("কোন লেকচারটা অ্যাড করতে চাস বল? রেঞ্জও দিতে পারিস (যেমন: P1 C2 L1 বা P1 C2 L1-10)")
-    elif text == 'Mark Class Done': user_data["current_state"] = "WAITING_FOR_CLASS"; return await update.message.reply_text("কোন লেকচারের ক্লাস শেষ করলি? কোড দে (যেমন: P1 C2 L1)")
-    elif text == 'Mark Note Done': user_data["current_state"] = "WAITING_FOR_NOTE"; return await update.message.reply_text("কোন চ্যাপ্টারের নোট কমপ্লিট? কোড দে (যেমন: P1 C2)")
-    elif text == 'Mark Practice Done': user_data["current_state"] = "WAITING_FOR_PRACTICE"; return await update.message.reply_text("কোন চ্যাপ্টারের প্র্যাকটিস ডান? কোড দে (যেমন: P1 C2)")
-    elif text == 'Mark Exam Done': user_data["current_state"] = "WAITING_FOR_EXAM"; return await update.message.reply_text("কোন চ্যাপ্টারের এক্সাম ডান? কোড দে (যেমন: P1 C2)")
+    # --- ২. সাব-মেনু কমান্ডস (ইউজার যখন STATE_SYLLABUS_MENU তে থাকবে) ---
+    elif text == 'Add New Lecture': 
+        user_data["current_state"] = "WAITING_FOR_ADD"
+        return await update.message.reply_text("কোন লেকচারটা অ্যাড করতে চাস বল? রেঞ্জও দিতে পারিস (যেমন: P1 C2 L1 বা P1 C2 L1-10)")
+    elif text == 'Mark Class Done': 
+        user_data["current_state"] = "WAITING_FOR_CLASS"
+        return await update.message.reply_text("কোন লেকচারের ক্লাস শেষ করলি? কোড দে (যেমন: P1 C2 L1)")
+    elif text == 'Mark Note Done': 
+        user_data["current_state"] = "WAITING_FOR_NOTE"
+        return await update.message.reply_text("কোন চ্যাপ্টারের নোট কমপ্লিট? কোড দে (যেমন: P1 C2)")
+    elif text == 'Mark Practice Done': 
+        user_data["current_state"] = "WAITING_FOR_PRACTICE"
+        return await update.message.reply_text("কোন চ্যাপ্টারের প্র্যাকটিস ডান? কোড দে (যেমন: P1 C2)")
+    elif text == 'Mark Exam Done': 
+        user_data["current_state"] = "WAITING_FOR_EXAM"
+        return await update.message.reply_text("কোন চ্যাপ্টারের এক্সাম ডান? কোড দে (যেমন: P1 C2)")
 
-    # ------------------ EXECUTE ONE-TIME LOCKED STATES ------------------
+    # --- ৩. ইন-মেনু কিবোর্ড ট্র্যাপ এভয়েডেন্স ---
+    if state == "STATE_SYLLABUS_MENU":
+        return await update.message.reply_text("ভাই, সিলেবাস কিবোর্ডের বাটনগুলো ব্যবহার কর অথবা 'Back to Main Menu' চেপে চলে যা।", reply_markup=get_syllabus_keyboard())
+
+    # --- ৪. ওয়ান-টাইম লকিং সাব-স্টেট হ্যান্ডলার ---
     if state == "WAITING_FOR_TARGET":
-        user_data["daily_target_raw"] = text; user_data["current_state"] = "NORMAL"
+        user_data["daily_target_raw"] = text
+        user_data["current_state"] = "NORMAL"
         save_target_to_sheet("Pending")
-        logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=text, kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="User has set a daily target.")
-        return await update.message.reply_text(generate_openrouter_chat(sys_prompt, f"Set target: {text}", 0.7), reply_markup=get_main_keyboard())
+        reply = generate_openrouter_chat(f"User set daily target: {text}", "User has set a daily target.")
+        return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
     elif state == "WAITING_FOR_TARGET_UPDATE":
         user_data["current_state"] = "NORMAL"
-        logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=user_data["daily_target_raw"], kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="PARSING_TARGET_UPDATE")
-        return await update.message.reply_text(generate_openrouter_chat(sys_prompt, text, 0.5), reply_markup=get_main_keyboard())
+        reply = generate_openrouter_chat(text, "PARSING_TARGET_UPDATE")
+        return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
     elif state == "WAITING_FOR_KAIZEN":
         user_data["current_state"] = "NORMAL"
-        logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=user_data["daily_target_raw"], kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="PARSING_KAIZEN_SET")
-        return await update.message.reply_text(generate_openrouter_chat(sys_prompt, f"New Goal Setup: {text}", 0.7), reply_markup=get_main_keyboard())
+        reply = generate_openrouter_chat(f"New Goal Setup: {text}", "PARSING_KAIZEN_SET")
+        return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
     elif state == "WAITING_FOR_KAIZEN_UPDATE":
         user_data["current_state"] = "NORMAL"
-        logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-        sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=user_data["daily_target_raw"], kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="PARSING_KAIZEN_LOG")
-        return await update.message.reply_text(generate_openrouter_chat(sys_prompt, text, 0.5), reply_markup=get_main_keyboard())
+        reply = generate_openrouter_chat(text, "PARSING_KAIZEN_LOG")
+        return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
-    # নতুন ২-টেবিল ডেটা রাইট সাব-স্টেট ইঞ্জিন
+    # --- ৫. সিলেবাস সাব-মেনু ডাটা রাইটিং (সফল প্রসেস শেষে স্টেট ফিরে যাবে STATE_SYLLABUS_MENU তে) ---
     elif state == "WAITING_FOR_ADD":
         mode, ch_key, lec_info = parse_smart_shortcode(text)
-        if not ch_key: return await update.message.reply_text("কোড ঠিক নাই ভাই! উদাহরণ: P1 C2 L1 বা P1 C2 L1-10")
+        if not ch_key: 
+            return await update.message.reply_text("কোড ঠিক নাই ভাই! উদাহরণ: P1 C2 L1 বা P1 C2 L1-10")
         
-        if ch_key not in user_chapters: user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
+        if ch_key not in user_chapters: 
+            user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
         
         if mode == "RANGE":
             start_l, end_l = lec_info
             for i in range(start_l, end_l + 1):
                 user_lectures[f"{ch_key}_L{i}"] = "Pending"
                 post_lecture_to_sheet(ch_key, f"L{i}", "Pending")
-            user_data["current_state"] = "NORMAL"; return await update.message.reply_text(f"চ্যাপ্টারে L{start_l} থেকে L{end_l} বাল্ক লেকচার অ্যাড করা হয়েছে!", reply_markup=get_main_keyboard())
+            user_data["current_state"] = "STATE_SYLLABUS_MENU"
+            return await update.message.reply_text(f"চ্যাপ্টারে L{start_l} থেকে L{end_l} বাল্ক লেকচার অ্যাড করা হয়েছে!", reply_markup=get_syllabus_keyboard())
         elif mode == "LECTURE":
             user_lectures[f"{ch_key}_{lec_info}"] = "Pending"
             post_lecture_to_sheet(ch_key, lec_info, "Pending")
-            user_data["current_state"] = "NORMAL"; return await update.message.reply_text(f"সিলেবাসে {ch_key} এর {lec_info} অ্যাড করা হয়েছে!", reply_markup=get_main_keyboard())
-        else: return await update.message.reply_text("লেকচার নাম্বার বা রেঞ্জ উল্লেখ কর ভাই!")
+            user_data["current_state"] = "STATE_SYLLABUS_MENU"
+            return await update.message.reply_text(f"সিলেবাসে {ch_key} এর {lec_info} অ্যাড করা হয়েছে!", reply_markup=get_syllabus_keyboard())
+        else: 
+            return await update.message.reply_text("লেকচার নাম্বার বা রেঞ্জ উল্লেখ কর ভাই!")
 
     elif state == "WAITING_FOR_CLASS":
         mode, ch_key, lec_key = parse_smart_shortcode(text)
-        if not ch_key or mode != "LECTURE": return await update.message.reply_text("ভুল শর্টকোড! ট্রাই কর এভাবে: P1 C2 L1")
+        if not ch_key or mode != "LECTURE": 
+            return await update.message.reply_text("ভুল শর্টকোড! ট্রাই কর এভাবে: P1 C2 L1")
         full_lkey = f"{ch_key}_{lec_key}"
         user_lectures[full_lkey] = "Done"
         
@@ -416,35 +475,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ch_key in user_chapters: user_chapters[ch_key]["progress"] = f"{dn}/{tot}"
         
         post_lecture_to_sheet(ch_key, lec_key, "Done")
-        user_data["current_state"] = "NORMAL"; return await update.message.reply_text("লেকচার ক্লাস কমপ্লিট মার্ক করা হয়েছে!", reply_markup=get_main_keyboard())
+        user_data["current_state"] = "STATE_SYLLABUS_MENU"
+        return await update.message.reply_text("লেকচার ক্লাস কমপ্লিট মার্ক করা হয়েছে!", reply_markup=get_syllabus_keyboard())
 
     elif state in ["WAITING_FOR_NOTE", "WAITING_FOR_PRACTICE", "WAITING_FOR_EXAM"]:
         mode, ch_key, _ = parse_smart_shortcode(text)
-        if not ch_key: return await update.message.reply_text("ভুল চ্যাপ্টার শর্টকোড! ট্রাই কর এভাবে: P1 C2")
+        if not ch_key: 
+            return await update.message.reply_text("ভুল চ্যাপ্টার শর্টকোড! ট্রাই কর এভাবে: P1 C2")
         task = state.split("_")[-1].lower()
         
-        if ch_key not in user_chapters: user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
+        if ch_key not in user_chapters: 
+            user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
         user_chapters[ch_key][task] = "Done"
         
         post_chapter_task_to_sheet(ch_key, task, "Done")
-        user_data["current_state"] = "NORMAL"; return await update.message.reply_text(f"চ্যাপ্টারের {task.capitalize()} সফলভাবে ডান মার্ক করা হয়েছে!", reply_markup=get_main_keyboard())
+        user_data["current_state"] = "STATE_SYLLABUS_MENU"
+        return await update.message.reply_text(f"চ্যাপ্টারের {task.capitalize()} সফলভাবে ডান মার্ক করা হয়েছে!", reply_markup=get_syllabus_keyboard())
 
-    # ------------------ NORMAL CHAT MODE ------------------
-    logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-    sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=user_data["daily_target_raw"], kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="Respond organically as a mentor.")
-    await update.message.reply_text(generate_openrouter_chat(sys_prompt, text, 0.7))
+    # --- ৬. নরমাল কনভারসেশন চ্যাট (এখানে কোনো ট্যাগ প্রেশার থাকবে না) ---
+    reply = generate_openrouter_chat(text, "Respond organically as a mentor.")
+    await update.message.reply_text(reply)
 
 # --- Hourly Smart Reminder Engine ---
 async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
-    if user_data["daily_target_raw"] == "No target set yet." or "mission successful" in user_data["daily_target_raw"].lower(): return
+    if user_data["daily_target_raw"] == "No target set yet." or "mission successful" in user_data["daily_target_raw"].lower(): 
+        return
     current_hour = get_bd_time().hour
-    if current_hour >= 0 and current_hour < 6: return
-    logs_raw = json.dumps(user_data["kaizen_logs"][:5])
-    sys_prompt = SYSTEM_PROMPT.format(current_time=get_bd_time().strftime("%I:%M %p"), daily_target_raw=user_data["daily_target_raw"], kaizen_goals=user_data["kaizen_goals"], kaizen_logs_raw=logs_raw, dynamic_summary_context=get_live_summary_string(), context_reason="Hourly checking routine.")
-    try: await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=generate_openrouter_chat(sys_prompt, "[SYSTEM: RUNNING HOURLY MONITOR CHECK]", 0.8))
+    if current_hour >= 0 and current_hour < 6: 
+        return
+    
+    reply = generate_openrouter_chat("[SYSTEM: RUNNING HOURLY MONITOR CHECK]", "Hourly checking routine.")
+    try: 
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply)
     except Exception: pass
 
-def run_dummy_server(): HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
+def run_dummy_server(): 
+    HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
@@ -455,8 +521,11 @@ def main():
     app.add_handler(CommandHandler("chapters", chapters_command))
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    if app.job_queue: app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
-    print("✅ Jeetu Bhaiya AI V6 (Two-Table Architecture Clean Edition) Running Successfully!")
+    if app.job_queue: 
+        app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
+    
+    print("✅ Jeetu Bhaiya AI V7 (Stable Blueprint Edition) Running Successfully!")
     app.run_polling()
 
-if __name__ == '__main__': main()
+if __name__ == '__main__': 
+    main()
