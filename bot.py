@@ -10,19 +10,31 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
 
+# Google GenAI SDK ইমপোর্ট
+from google import genai
+from google.genai import types
+
 load_dotenv()
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # API Keys & Configurations
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GEMINI_API_KEY")
-if OPENROUTER_API_KEY:
-    OPENROUTER_API_KEY = OPENROUTER_API_KEY.strip('"\' ') 
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+if GEMINI_API_KEY:
+    GEMINI_API_KEY = GEMINI_API_KEY.strip('"\' ') 
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337))
-OPENROUTER_MODEL = "google/gemma-4-31b-it:free"
+GEMINI_MODEL = "gemma-4-31b-it"  # Google AI Studio-এর অফিশিয়াল Gemma 4 31B মডেল আইডি
+
+# Google GenAI ক্লায়েন্ট ইনিশিয়ালাইজেশন
+client = None
+if GEMINI_API_KEY:
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        logging.error(f"Failed to initialize Google GenAI client: {e}")
 
 # Memory State Machine (Isolated Sub-State Engine)
 user_data = {
@@ -89,7 +101,7 @@ CHAPTER_NAMES = {
     "M1_C10": "যোগজীকরণ",
     "M2_C1": "বাস্তব সংখ্যা ও অসমতা", 
     "M2_C2": "বহুপদী ও বহুপদী সমীকরণ", 
-    "M2_C3": "জটিল সংখ্যা", 
+    "M2_C3": "জর্কিল সংখ্যা", 
     "M2_C4": "বিপরীত ত্রিকোণমিতিক ফাংশন ও ত্রিকোণমিতিক সমীকরণ",
     "M2_C5": "দ্বিপদী বিস্তৃতি", 
     "M2_C6": "কণিক", 
@@ -223,10 +235,17 @@ def get_live_summary_context():
     else:
         return f"ইউজার এখনো সিলেবাসে কোনো লেকচার অ্যাড করেনি এবং সে আজ '{user_data['daily_target_raw']}' মিশন সেট করেছে।"
 
-# --- Adaptive OpenRouter Interceptor with Explicit Chat Diagnosis (V8) ---
+# --- Adaptive Google GenAI Interceptor with Explicit Chat Diagnosis ---
 def generate_openrouter_chat(user_message: str, context_reason: str = "Respond organically as a mentor.") -> str:
-    if not OPENROUTER_API_KEY: 
-        return "API Key Missing!"
+    global client
+    if not client:
+        if GEMINI_API_KEY:
+            try:
+                client = genai.Client(api_key=GEMINI_API_KEY)
+            except Exception as e:
+                return f"গুগল ক্লায়েন্ট ইনিশিয়ালাইজেশন এরর: {str(e)[:120]}"
+        else:
+            return "API Key Missing!"
     
     dynamic_context = get_live_summary_context()
     
@@ -260,67 +279,74 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "Respond o
         system_prompt += "\n\nSTRICT ACTION RULE:\nFinalize their new LIFESTYLE/HABIT goal (strictly lifestyle habits like sleep time, exercise, diet, routine).\nDO NOT include academic study targets, lectures, or syllabus chapters in this tag! Study missions are daily targets, NOT long-term lifestyle habits.\nEnd your reply with this tag EXACTLY:\n<KAIZEN_UPDATE>Summarized new active LIFESTYLE goals in Bengali (strictly exclude study targets/lectures)</KAIZEN_UPDATE>"
         temp = 0.3
 
-    # Clean history dictionary to guarantee strict API compatibility
-    clean_history = []
+    # Clean history dictionary and map 'assistant' to 'model' for Google AI Studio compatibility
+    formatted_contents = []
     for msg in user_data["chat_history"]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
-            clean_history.append({"role": str(msg["role"]), "content": str(msg["content"])})
+            role = "user" if msg["role"] == "user" else "model"
+            formatted_contents.append({
+                "role": role,
+                "parts": [{"text": str(msg["content"])}]
+            })
 
-    messages = [{"role": "system", "content": system_prompt}] + clean_history + [{"role": "user", "content": user_message}]
+    # Append current message
+    formatted_contents.append({
+        "role": "user",
+        "parts": [{"text": user_message}]
+    })
 
-    # V8: কোনো সাইলেন্ট ফেইলওভার ফ্রি মডেল ট্রাই করবে না, শুধুমাত্র Gemma 4 এ স্টিক থাকবে
     try:
-        logging.info(f"⚡ Requesting OpenRouter via: {OPENROUTER_MODEL} (Temp: {temp})")
-        res = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temp},
-            timeout=25
+        logging.info(f"⚡ Requesting Google AI Studio via: {GEMINI_MODEL} (Temp: {temp})")
+        
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=formatted_contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=temp
+            )
         )
         
-        if res.status_code == 200:
-            bot_reply = res.json()["choices"][0]["message"]["content"]
+        bot_reply = response.text
+        if not bot_reply:
+            raise ValueError("Empty response received from Gemini API.")
             
-            # Regex parsers
-            match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_up:
-                user_data["kaizen_goals"] = match_up.group(1).strip()
-                bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-            
-            match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_log:
-                try:
-                    parts = match_log.group(1).strip().split("|")
-                    if len(parts) >= 3: 
-                        threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
-                except Exception: pass
-                bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+        # Regex parsers
+        match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
+        if match_up:
+            user_data["kaizen_goals"] = match_up.group(1).strip()
+            bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+        
+        match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
+        if match_log:
+            try:
+                parts = match_log.group(1).strip().split("|")
+                if len(parts) >= 3: 
+                    threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
+            except Exception: pass
+            bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
-            match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_tgt:
-                parsed_status = match_tgt.group(1).strip()
-                if parsed_status in ["Done", "Completed"]: 
-                    user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
-                # V8: আংশিক আপডেটের জন্য is_new=False পাঠানো হচ্ছে
-                threading.Thread(target=save_target_to_sheet, args=(parsed_status, False), daemon=True).start()
-                bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+        match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
+        if match_tgt:
+            parsed_status = match_tgt.group(1).strip()
+            if parsed_status in ["Done", "Completed"]: 
+                user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
+            # V8: আংশিক আপডেটের জন্য is_new=False পাঠানো হচ্ছে
+            threading.Thread(target=save_target_to_sheet, args=(parsed_status, False), daemon=True).start()
+            bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
-            bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
-            
-            user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
-            if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
-                user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
-            
-            threading.Thread(target=save_memory_to_sheet, daemon=True).start()
-            return bot_reply
-        else:
-            logging.error(f"❌ OpenRouter failed with status {res.status_code}: {res.text}")
-            # V8: এরর আসলে চ্যাটে ডায়াগনস্টিক ডিটেইলস দেখাবে
-            return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! ওপেনরাউটার এরর কোড: {res.status_code}। এরর ডিটেইলস: {res.text[:120]}"
+        bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
+        
+        user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
+        if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
+            user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
+        
+        threading.Thread(target=save_memory_to_sheet, daemon=True).start()
+        return bot_reply
             
     except Exception as e:
         logging.error(f"⚠️ Connection error: {e}")
-        return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! পাইথন এরর: {str(e)[:120]}"
+        return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! গুগল এআই এরর: {str(e)[:120]}"
 
 # --- Dashboard formatters ---
 def create_progress_bar(percentage):
@@ -600,7 +626,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = generate_openrouter_chat(text, "Respond organically as a mentor.")
     await update.message.reply_text(reply)
 
-# --- Hourly Smart Reminder Engine ---
+# --- Smart Reminder Engine ---
 async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
     if user_data["daily_target_raw"] == "No target set yet." or "mission successful" in user_data["daily_target_raw"].lower(): 
         return
@@ -628,7 +654,7 @@ def main():
     if app.job_queue: 
         app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
-    print("✅ Jeetu Bhaiya AI V8 (Production Stable Edition) Running Successfully!")
+    print("✅ Jeetu Bhaiya AI V8 (Production Stable Edition - Google AI Studio) Running Successfully!")
     app.run_polling()
 
 if __name__ == '__main__': 
