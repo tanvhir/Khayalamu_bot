@@ -318,13 +318,24 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "Respond o
             bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
         
         match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_log:
-            try:
-                parts = match_log.group(1).strip().split("|")
-                if len(parts) >= 3: 
-                    threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
-            except Exception: pass
-            bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+            if match_log:
+                try:
+                    parts = match_log.group(1).strip().split("|")
+                    if len(parts) >= 3: 
+                        threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
+                        
+                        # লোকাল মেমোরি আপডেট লজিক
+                        new_log = {
+                            "date": get_bd_time().strftime("%Y-%m-%d"),
+                            "goal": parts[0].strip(),
+                            "status": parts[1].strip().upper(),
+                            "text": parts[2].strip()
+                        }
+                        user_data["kaizen_logs"].insert(0, new_log)
+                        if len(user_data["kaizen_logs"]) > 10:
+                            user_data["kaizen_logs"] = user_data["kaizen_logs"][:10]
+                except Exception: pass
+                bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
         match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_tgt:
