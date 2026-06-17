@@ -16,6 +16,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # API Keys & Configurations
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GEMINI_API_KEY")
+if OPENROUTER_API_KEY:
+    OPENROUTER_API_KEY = OPENROUTER_API_KEY.strip('"\' ') # কি-এর দুইপাশের কোটেশন বা স্পেস ক্লিন করার জন্য
+
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL")
 ALLOWED_CHAT_ID = int(os.environ.get("ALLOWED_CHAT_ID", 5959341337))
@@ -40,23 +43,23 @@ SUBJECT_ICONS = {"P": "🧲", "C": "🧪", "M": "📐", "B": "🧬"}
 CHAPTER_NAMES = {
     "P1_C1": "ভৌত জগৎ ও পরিমাপ", "P1_C2": "ভেক্টর", "P1_C3": "গতিবিদ্যা", "P1_C4": "নিউটনীয় বলবিদ্যা",
     "P1_C5": "কাজ, শক্তি ও ক্ষমতা", "P1_C6": "মহাকর্ষ ও অভিকর্ষ", "P1_C7": "পদার্থের গাঠনিক ধর্ম",
-    "P1_C8": "পর্যাবৃত্ত গতি", "P1_C9": "তরঙ্গ", "P1_C10": "আদর্শ গ্যাস ও গ্যাসের গতিতত্ত্ব",
+    "P1_C8": "পর্যাবৃত্ত গতি", "P1_C9": "তরঙ্গ", "P1_C10": "আదర్శ গ্যাস ও গ্যাসের গতিতত্ত্ব",
     "P2_C1": "তাপগতিবিদ্যা", "P2_C2": "স্থির তড়িৎ", "P2_C3": "চল তড়িৎ", "P2_C4": "তড়িৎ প্রবাহের চৌম্বক ক্রিয়া ও চৌম্বকত্ব",
     "P2_C5": "তড়িৎচুম্বকীয় আবেশ ও পরিবর্তী প্রবাহ", "P2_C6": "জ্যামিতিক আলোকবিজ্ঞান", "P2_C7": "ভৌত আলোকবিজ্ঞান", "P2_C8": "আধুনিক পদার্থবিজ্ঞানের সূচনা",
     "C1_C1": "ল্যাবরেটরির নিরাপদ ব্যবহার", "C1_C2": "গুণগত রসায়ন", "C1_C3": "মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন", "C1_C4": "রাসায়নিক পরিবর্তন", "C1_C5": "কর্মমুখী রসায়ন",
     "C2_C1": "পরিবেশ রসায়ন", "C2_C2": "জৈব রসায়ন", "C2_C3": "পরিমাণগত রসায়ন", "C2_C4": "তড়িৎ রসায়ন", "C2_C5": "অর্থনৈতিক রসায়ন",
     "M1_C1": "ম্যাট্রিক্স ও নির্ণায়ক", "M1_C2": "সরলরেখা", "M1_C3": "বৃত্ত", "M1_C4": "বিন্যাস ও সমাবেশ", "M1_C5": "ত্রিকোণমিতিক অনুপাত",
-    "M1_C6": "সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত", "M1_C7": "ফাংশন ও ফাংশনের লেখচিত্র", "M1_C8": "বিপরীত ত্রিকোণমিতিক ফাংশন", "M1_C9": "অন্তরীকরণ", "M1_C10": "যোগজীকরণ",
-    "M2_C1": "বাস্তব সংখ্যা ও অসমতা", "M2_C2": "বহুপদী ও বহুপদী সমীকরণ", "M2_C3": "জতিষ্ক সংখ্যা", "M2_C4": "দ্বিপদী বিস্তৃতি",
+    "M1_C6": "সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত", "M1_C7": "ফাংশন ও ফাংশনের লেখচিত্র", "M1_C8": "বিপরীত ত্রিকোণমিতিক ফাংশন", "M1_C9": "অন্টারীকরণ", "M1_C10": "যোগজীকরণ",
+    "M2_C1": "বাস্তব সংখ্যা ও অসমতা", "M2_C2": "বহুপদী ও বহুপদী সমীকরণ", "M2_C3": "জটিল সংখ্যা", "M2_C4": "দ্বিপদী বিস্তৃতি",
     "M2_C5": "কণিক", "M2_C6": "স্থিতিবিদ্যা", "M2_C7": "সমতলে বস্তুকণার গতি", "M2_C8": "সম্ভাবনা", "M2_C9": "পরিসংখ্যান",
     "B1_C1": "কোষ ও এর গঠন", "B1_C2": "কোষ বিভাজন", "B1_C3": "কোষ রসায়ন", "B1_C4": "অণুজীব", "B1_C5": "শৈবাল ও ছত্রাক",
     "B1_C6": "ব্রায়োফাইটা ও টেরিডোফাইটা", "B1_C7": "নগ্নবীজী ও আবৃতবীজী উদ্ভিদ", "B1_C8": "টিস্যু ও টিস্যুতন্ত্র", "B1_C9": "উদ্ভিদ শারীরতত্ত্ব", "B1_C10": "উদ্ভিদ প্রজনন", "B1_C11": "জীবপ্রযুক্তি",
     "B2_C1": "প্রাণীর বিভিন্নতা ও শ্রেণিবিন্যাস", "B2_C2": "প্রাণীর পরিচিতি", "B2_C3": "পরিপাক ও শোষণ", "B2_C4": "রক্ত ও সঞ্চালন",
     "B2_C5": "কম্পন ও শ্বসন", "B2_C6": "বর্জ্য ও নিষ্কাশন", "B2_C7": "চলন ও অঙ্গচালনা", "B2_C8": "সমন্বয় ও নিয়ন্ত্রণ",
-    "B2_C9": "মানব জীবনের ধারাবাহিকতা", "B2_C10": "মানবদেহের প্রতিরক্ষা", "B2_C11": "জিনতত্ত্ব ও বিবর্তন", "B2_C12": "প্রাণীর আচরণ", "B2_C13": "জীবের পরিবেশ, বিস্তার ও সংরক্ষণ"
+    "B2_C9": "মানব জীবনের ধারাবাহিকতা", "B2_C10": "মানবدهহের প্রতিরক্ষা", "B2_C11": "জিনতত্ত্ব ও বিবর্তন", "B2_C12": "প্রাণীর আচরণ", "B2_C13": "জীবের পরিবেশ, বিস্তার ও সংরক্ষণ"
 }
 
-# 🚀 SYSTEM PROMPT (জিতু ভাইয়ার ১০০% জেনুইন পারসোনা - ডাইনামিকালি ট্রিগারড)
+# 🚀 SYSTEM PROMPT (জিতু ভাইয়ার ১০০% জেনুইন পারসোনা)
 SYSTEM_PROMPT_BASE = """
 You are 'Jeetu Bhaiya', an elite, deeply empathetic, hardcore, and practical personal AI Mentor for a Bangladeshi second-timer varsity admission candidate.
 
@@ -71,7 +74,7 @@ CORE PERSONA & RULES:
 - STRICTLY speak in NATURAL, CASUAL BANGLADESHI BENGALI (তুমি/তুই mix, ভাই, শোন, প্যারা নাই, কিরে).
 - NEVER use markdown formatting like asterisks (**) or hashes (#). Keep it clean and human.
 - Keep responses short, human-like, crisp and direct (Max 3-5 lines). No long essays.
-- Provide "Tough Love": Show empathy for their struggle but hold them strictly accountable.
+- Act like a real human monitor. Give tough love but show genuine support.
 
 CONTEXT WINDOW:
 - Current Bangladesh Time: {current_time}
@@ -154,22 +157,33 @@ def get_live_summary_context():
     else:
         return f"ইউজার এখনো সিলেবাসে কোনো লেকচার অ্যাড করেনি এবং সে আজ '{user_data['daily_target_raw']}' মিশন সেট করেছে।"
 
-# --- Adaptive OpenRouter Interceptor (V7) ---
+# --- Adaptive OpenRouter Interceptor with Failsafe Auto-Failover (V7.1) ---
 def generate_openrouter_chat(user_message: str, context_reason: str = "Respond organically as a mentor.") -> str:
-    if not OPENROUTER_API_KEY: return "API Key Missing!"
+    if not OPENROUTER_API_KEY: 
+        logging.error("❌ OpenRouter API Key is missing!")
+        return "API Key Missing!"
     
-    # dynamic temperature config based on intent
-    temp = 0.7
     dynamic_context = get_live_summary_context()
-    system_prompt = SYSTEM_PROMPT_BASE.format(
-        current_time=get_bd_time().strftime("%I:%M %p"),
-        daily_target_raw=user_data["daily_target_raw"],
-        kaizen_goals=user_data["kaizen_goals"],
-        kaizen_logs_raw=json.dumps(user_data["kaizen_logs"][:4]),
-        dynamic_summary_context=dynamic_context
-    )
+    
+    # safe prompt formatter
+    try:
+        system_prompt = SYSTEM_PROMPT_BASE.format(
+            current_time=get_bd_time().strftime("%I:%M %p"),
+            daily_target_raw=user_data["daily_target_raw"],
+            kaizen_goals=user_data["kaizen_goals"],
+            kaizen_logs_raw=json.dumps(user_data["kaizen_logs"][:4]),
+            dynamic_summary_context=dynamic_context
+        )
+    except Exception as fe:
+        logging.error(f"Prompt formatting failed: {fe}. Falling back to safe string replacement.")
+        system_prompt = SYSTEM_PROMPT_BASE.replace("{current_time}", get_bd_time().strftime("%I:%M %p")) \
+                                            .replace("{daily_target_raw}", str(user_data["daily_target_raw"])) \
+                                            .replace("{kaizen_goals}", str(user_data["kaizen_goals"])) \
+                                            .replace("{kaizen_logs_raw}", json.dumps(user_data["kaizen_logs"][:4])) \
+                                            .replace("{dynamic_summary_context}", str(dynamic_context))
 
-    # Inject tag pressure only when required on-demand
+    # Dynamic temperature & tag injections
+    temp = 0.7
     if context_reason == "PARSING_TARGET_UPDATE":
         system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate if user succeeded, half-done or failed. End your reply with this tag EXACTLY:\n<TARGET_PARSE>Done or Half Done or Failed</TARGET_PARSE>"
         temp = 0.3
@@ -180,52 +194,73 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "Respond o
         system_prompt += "\n\nSTRICT ACTION RULE:\nFinalize their new goal. End your reply with this tag EXACTLY:\n<KAIZEN_UPDATE>Summarized new active goals in Bengali</KAIZEN_UPDATE>"
         temp = 0.3
 
-    messages = [{"role": "system", "content": system_prompt}] + user_data["chat_history"] + [{"role": "user", "content": user_message}]
+    # Clean history dictionary to guarantee strict API compatibility
+    clean_history = []
+    for msg in user_data["chat_history"]:
+        if isinstance(msg, dict) and "role" in msg and "content" in msg:
+            clean_history.append({"role": str(msg["role"]), "content": str(msg["content"])})
+
+    messages = [{"role": "system", "content": system_prompt}] + clean_history + [{"role": "user", "content": user_message}]
+
+    # 🚀 Sequential Failover Models: primary fumbles -> fallback runs!
+    models_to_try = [
+        OPENROUTER_MODEL,  # "google/gemma-4-31b-it:free" (Primary)
+        "google/gemma-2-9b-it:free", # (Fast Backup)
+        "meta-llama/llama-3-8b-instruct:free", # (Reliable Llama Backup)
+        "openrouter/free" # (Load-balanced auto router)
+    ]
     
-    try:
-        res = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            json={"model": OPENROUTER_MODEL, "messages": messages, "temperature": temp},
-            timeout=25
-        )
-        if res.status_code == 200:
-            bot_reply = res.json()["choices"][0]["message"]["content"]
+    for model_name in models_to_try:
+        try:
+            logging.info(f"⚡ Requesting model: {model_name} (Temp: {temp})")
+            res = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={"model": model_name, "messages": messages, "temperature": temp},
+                timeout=20
+            )
             
-            # Bulletproof Regex Parsers
-            match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_up:
-                user_data["kaizen_goals"] = match_up.group(1).strip()
-                bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-            
-            match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_log:
-                try:
-                    parts = match_log.group(1).strip().split("|")
-                    if len(parts) >= 3: 
-                        threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
-                except Exception: pass
-                bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+            if res.status_code == 200:
+                bot_reply = res.json()["choices"][0]["message"]["content"]
+                
+                # Regex parsers
+                match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
+                if match_up:
+                    user_data["kaizen_goals"] = match_up.group(1).strip()
+                    bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+                
+                match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
+                if match_log:
+                    try:
+                        parts = match_log.group(1).strip().split("|")
+                        if len(parts) >= 3: 
+                            threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
+                    except Exception: pass
+                    bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
-            match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
-            if match_tgt:
-                parsed_status = match_tgt.group(1).strip()
-                if parsed_status in ["Done", "Completed"]: 
-                    user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
-                threading.Thread(target=save_target_to_sheet, args=(parsed_status,), daemon=True).start()
-                bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+                match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
+                if match_tgt:
+                    parsed_status = match_tgt.group(1).strip()
+                    if parsed_status in ["Done", "Completed"]: 
+                        user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
+                    threading.Thread(target=save_target_to_sheet, args=(parsed_status,), daemon=True).start()
+                    bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
-            # Clean response
-            bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
+                # Cleanup and return
+                bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
+                
+                user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
+                if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
+                    user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
+                
+                threading.Thread(target=save_memory_to_sheet, daemon=True).start()
+                return bot_reply
+            else:
+                logging.error(f"❌ Model {model_name} failed with status {res.status_code}: {res.text}")
+        except Exception as e:
+            logging.error(f"⚠️ Connection error for {model_name}: {e}")
             
-            user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
-            if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
-                user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
-            
-            threading.Thread(target=save_memory_to_sheet, daemon=True).start()
-            return bot_reply
-    except Exception: pass
-    return "নেটওয়ার্ক ড্রপ খাইছে ভাই! আবার একটু বল তো।"
+    return "নেটওয়ার্ক ড্রপ খাইছে ভাই! ওপেনরাউটার সার্ভার ডাউন বা রিকোয়েস্ট রেট-লিমিট খাইছে। আবার একটু বল তো।"
 
 # --- Dashboard formatters ---
 def create_progress_bar(percentage):
@@ -492,7 +527,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["current_state"] = "STATE_SYLLABUS_MENU"
         return await update.message.reply_text(f"চ্যাপ্টারের {task.capitalize()} সফলভাবে ডান মার্ক করা হয়েছে!", reply_markup=get_syllabus_keyboard())
 
-    # --- ৬. নরমাল কনভারসেশন চ্যাট (এখানে কোনো ট্যাগ প্রেশার থাকবে না) ---
+    # --- ৬. নরমাল কনভারসেশন চ্যাট ---
     reply = generate_openrouter_chat(text, "Respond organically as a mentor.")
     await update.message.reply_text(reply)
 
@@ -524,7 +559,7 @@ def main():
     if app.job_queue: 
         app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
-    print("✅ Jeetu Bhaiya AI V7 (Stable Blueprint Edition) Running Successfully!")
+    print("✅ Jeetu Bhaiya AI V7 (Stable Blueprint Edition with 7.1 Booster) Running Successfully!")
     app.run_polling()
 
 if __name__ == '__main__': 
