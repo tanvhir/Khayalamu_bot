@@ -444,11 +444,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "কিরে ভাই, আমি তোর মেন্টর জিতু ভাইয়া। V8 প্রফেশনাল মাস্টার এডিশন সাকসেসফুলি রানিং! কাজ শুরু কর।"
     await update.message.reply_text(msg, reply_markup=get_main_keyboard())
 
+def chapter_sort_key(item):
+    key, _ = item
+    match = re.match(r"([PCMB])([12])_C(\d+)", key)
+    if match:
+        sub, paper, ch_num = match.groups()
+        return (sub, int(paper), int(ch_num))
+    return (key, 0, 0)
+
 async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     msg = "📖 সিলেবাস কোড ডিকশনারী ম্যাপ\n━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     current_sub = ""
-    for k, v in sorted(CHAPTER_NAMES.items()):
+    for k, v in sorted(CHAPTER_NAMES.items(), key=chapter_sort_key):
         sub_prefix = k.split("_")[0]
         if sub_prefix != current_sub:
             current_sub = sub_prefix
