@@ -528,9 +528,9 @@ def get_syllabus_keyboard():
         ['Back to Main Menu']
     ], resize_keyboard=True)
 
-# ==========================================
-# BLOCK 8: MESSAGE PROCESSOR & STATE CONTROLLER
-# ==========================================
+# ======================================================
+# BLOCK 8: MESSAGE PROCESSOR & STATE CONTROLLER (V9.1)
+# ======================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     user_data["current_state"] = "NORMAL"
@@ -645,28 +645,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply, _ = generate_openrouter_chat(text, "PARSING_KAIZEN_LOG")
         return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
-    # --- ৬. সিলেবাস ইন-মেমোরি প্রসেসর ---
+    # --- ৬. সিলেবাস ইন-মেমোরি প্রসেসর (বাল্ক মাল্টিপল ইনপুট কাস্টম নেম সহ) ---
     elif state == "WAITING_FOR_ADD":
-        mode, ch_key, lec_info = parse_smart_shortcode(text)
-        if not ch_key: return await update.message.reply_text("কোড ঠিক নাই ভাই! উদাহরণ: P1 C2 L1 বা P1 C2 L1-10")
+        # লাইন ব্রেক অনুযায়ী ইনপুটগুলোকে আলাদা করা হচ্ছে
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        success_count = 0
+        success_messages = []
+        errors = []
         
-        if ch_key not in user_chapters: 
-            user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
+        for line in lines:
+            mode, ch_key, lec_info = parse_smart_shortcode(line)
+            if not ch_key:
+                errors.append(f"'{line}' -> কোড সঠিক নয়")
+                continue
+            
+            # চ্যাপ্টারের বাংলা নাম ডিকশনারি থেকে বের করা হচ্ছে, না থাকলে কোডটাই দেখাবে
+            ch_name = CHAPTER_NAMES.get(ch_key, ch_key)
+            
+            if ch_key not in user_chapters: 
+                user_chapters[ch_key] = {"progress": "0/0", "note": "Pending", "practice": "Pending", "exam": "Pending"}
+            
+            if mode == "RANGE":
+                start_l, end_l = lec_info
+                for i in range(start_l, end_l + 1):
+                    user_lectures[f"{ch_key}_L{i}"] = {"status": "Pending", "last_studied_at": ""}
+                    post_lecture_to_sheet(ch_key, f"L{i}", "Pending")
+                success_messages.append(f"{ch_name} চ্যাপ্টারের L{start_l} থেকে L{end_l} পর্যন্ত বাল্ক লেকচার অ্যাড করা হয়েছে!")
+                success_count += 1
+            elif mode == "LECTURE":
+                user_lectures[f"{ch_key}_{lec_info}"] = {"status": "Pending", "last_studied_at": ""}
+                post_lecture_to_sheet(ch_key, lec_info, "Pending")
+                success_messages.append(f"{ch_name} চ্যাপ্টারে {lec_info} অ্যাড করা হয়েছে!")
+                success_count += 1
+            else:
+                errors.append(f"'{line}' -> লেকচার বা রেঞ্জ কোড খুঁজে পাওয়া যায়নি")
+                
+        user_data["current_state"] = "STATE_SYLLABUS_MENU"
         
-        if mode == "RANGE":
-            start_l, end_l = lec_info
-            for i in range(start_l, end_l + 1):
-                user_lectures[f"{ch_key}_L{i}"] = {"status": "Pending", "last_studied_at": ""}
-                post_lecture_to_sheet(ch_key, f"L{i}", "Pending")
-            user_data["current_state"] = "STATE_SYLLABUS_MENU"
-            return await update.message.reply_text(f"চ্যাপ্টারে L{start_l} থেকে L{end_l} পর্যন্ত বাল্ক লেকচার অ্যাড করা হয়েছে!", reply_markup=get_syllabus_keyboard())
-        elif mode == "LECTURE":
-            user_lectures[f"{ch_key}_{lec_info}"] = {"status": "Pending", "last_studied_at": ""}
-            post_lecture_to_sheet(ch_key, lec_info, "Pending")
-            user_data["current_state"] = "STATE_SYLLABUS_MENU"
-            return await update.message.reply_text(f"সিলেবাসে {ch_key} এর {lec_info} অ্যাড করা হয়েছে!", reply_markup=get_syllabus_keyboard())
-        else: 
-            return await update.message.reply_text("লেকচার নাম্বার বা রেঞ্জ উল্লেখ কর ভাই!")
+        reply_msg = "বাল্ক লেকচার অ্যাড প্রক্রিয়া সম্পন্ন হয়েছে!\n\n"
+        if success_messages:
+            reply_msg += "✅ সফলভাবে যুক্ত করা টাস্কসমূহ:\n" + "\n".join([f"  • {m}" for m in success_messages])
+            
+        if errors:
+            reply_msg += f"\n\n❌ কিছু লাইনে সমস্যা দেখা গেছে:\n" + "\n".join([f"  • {e}" for e in errors])
+            
+        return await update.message.reply_text(reply_msg, reply_markup=get_syllabus_keyboard())
 
     elif state == "WAITING_FOR_CLASS":
         mode, ch_key, lec_key = parse_smart_shortcode(text)
@@ -703,9 +726,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.job_queue.run_once(scheduled_reminder_callback, when=int(rem_time)*60, chat_id=update.effective_chat.id)
     await update.message.reply_text(reply)
 
-# ==========================================
-# BLOCK 9: HOURLY BACKGROUND ACTIVE CHECK-INS
-# ==========================================
+# ===================================================
+# BLOCK 9: HOURLY CHECK-INS & SPECIAL COMMANDS (V9.1)
+# ===================================================
 async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
     """বোরিং চেক রিপ্লেসমেন্ট: শুধু কাজের টাইম স্লট বা ডেটাবেজ চেক ট্র্যাকিং"""
     if user_data["daily_target_raw"] == "No target set yet." or "successful" in user_data["daily_target_raw"].lower(): 
@@ -719,9 +742,45 @@ async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply)
     except Exception: pass
 
-# ==========================================
-# BLOCK 10: ENGINE RUNNER & PORT BINDERS
-# ==========================================
+def chapter_sort_key(item):
+    key, _ = item
+    match = re.match(r"([PCMB])([12])_C(\d+)", key)
+    if match:
+        sub, paper, ch_num = match.groups()
+        return (sub, int(paper), int(ch_num))
+    return (key, 0, 0)
+
+async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != ALLOWED_CHAT_ID: return
+    
+    # ইউজার কোনো প্যারামিটার দিয়েছে কি না চেক করি (যেমন: P, C, M, B)
+    filter_arg = context.args[0].upper() if context.args else None
+    
+    # ইনপুট ভ্যালিডেশন
+    if filter_arg and filter_arg not in ["P", "C", "M", "B"]:
+        await update.message.reply_text("ভুল সাবজেক্ট কোড! শুধু P (Physics), C (Chemistry), M (Math), বা B (Biology) ব্যবহার কর ভাই।")
+        return
+        
+    msg = "📖 সিলেবাস কোড ডিকশনারী ম্যাপ\n━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    current_sub = ""
+    for k, v in sorted(CHAPTER_NAMES.items(), key=chapter_sort_key):
+        sub_prefix = k.split("_")[0] # e.g., P1, C2, M1
+        sub_letter = sub_prefix[0]   # e.g., P, C, M, B
+        
+        # ফিল্টার আর্গুমেন্ট থাকলে শুধু ম্যাচিং বিষয়ের চ্যাপ্টারগুলো দেখাবে
+        if filter_arg and sub_letter != filter_arg:
+            continue
+            
+        if sub_prefix != current_sub:
+            current_sub = sub_prefix
+            msg += f"\n{SUBJECT_ICONS.get(current_sub[0], '📚')} {SUBJECT_NAMES.get(current_sub[0], current_sub)} ({current_sub})\n"
+        msg += f"  • {k} -> {v}\n"
+        
+    await update.message.reply_text(msg)
+    
+# =============================================
+# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V9.1)
+# =============================================
 def run_dummy_server(): 
     HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
 
@@ -729,8 +788,12 @@ def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     load_from_google_sheet()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    
+    # কমান্ড হ্যান্ডলার রেজিস্ট্রেশন
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", start))
+    app.add_handler(CommandHandler("chapters", chapters_command))  # /chapters কমান্ড রেজিস্টার করা হলো
+    
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     if app.job_queue: 
         app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
