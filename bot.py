@@ -267,10 +267,10 @@ def parse_smart_shortcode(text):
     return "CHAPTER", ch_key, None
 
 # ==========================================
-# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10 - TIMEOUT, RETRY & FALLBACK)
+# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10 - TIMEOUT & FALLBACK)
 # ==========================================
 def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") -> tuple:
-    import time  # রিট্রাইয়ের মাঝে বিরতির জন্য লোকাল ইমপোর্ট
+    import time  # রিট্রাইয়ের মাঝে বিরতির জন্য
     global client
     if not client:
         if GEMINI_API_KEY:
@@ -278,7 +278,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             except Exception as e: return f"গুগল ক্লায়েন্ট এপিআই সংযোগ ত্রুটি: {str(e)[:120]}", None
         else: return "API Key Missing!", None
     
-    # কন্টেক্সট অনুযায়ী র-ডেটা অথবা শর্ট সামারি ডাইনামিকালি লোড হবে
     dynamic_context = get_live_summary_context(context_reason)
     
     try:
@@ -290,166 +289,92 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             kaizen_logs_raw=json.dumps(user_data["kaizen_logs"][:4]),
             dynamic_summary_context=dynamic_context
         )
-    except Exception as fe:
-        logging.error(f"Prompt formatting failed: {fe}. Falling back to safe replacement.")
-        system_prompt = SYSTEM_PROMPT_BASE.replace("{current_time}", get_bd_time().strftime("%I:%M %p")) \
-                                            .replace("{daily_target_raw}", str(user_data["daily_target_raw"])) \
-                                            .replace("{kaizen_goals}", str(user_data["kaizen_goals"])) \
-                                            .replace("{long_term_plan}", str(user_data["long_term_plan"])) \
-                                            .replace("{kaizen_logs_raw}", json.dumps(user_data["kaizen_logs"][:4])) \
-                                            .replace("{dynamic_summary_context}", str(dynamic_context))
+    except Exception:
+        system_prompt = SYSTEM_PROMPT_BASE.replace("{current_time}", get_bd_time().strftime("%I:%M %p")) # Safe fallback
 
-    # কন্টেক্সট ভিত্তিক রেসপন্স লেন্থ এবং ট্যাগ কন্ট্রোল (ডাইনামিক রেসপন্স লেন্থ)
-    temp = 0.7
+    # Context tag mapping
+    temp = 0.3 if "PLANNING" in context_reason or "PARSING" in context_reason else 0.7
     if context_reason == "PLANNING_MODE":
-        system_prompt += "\n\nSTRICT PLANNING RULE:\nতুমি এখন প্ল্যানিং সেশনে আছ। ৩-৫ লাইনের লিমিটেশন ভুলে যাও এবং ইউজারকে সময় ভাগ করে দিয়ে বিস্তারিত হিসাব ও শিডিউল কষে দাও। পরিকল্পনা ফাইনাল হলে এই ট্যাগটি দাও:\n<UPDATE_TARGET>সময় অনুযায়ী সাজানো সুন্দর প্ল্যানের সামারি</UPDATE_TARGET>"
-        temp = 0.3
+        system_prompt += "\n\nSTRICT PLANNING RULE:\nতুমি এখন প্ল্যানিং সেশনে আছ। ৩-৫ লাইনের লিমিটেশন ভুলে যাও এবং ইউজারকে বিস্তারিত শিডিউল দাও। শেষে এই ট্যাগ দাও: <UPDATE_TARGET>সামারি</UPDATE_TARGET>"
     elif context_reason == "PLANNING_LONG_TERM":
-        system_prompt += "\n\nSTRICT LONG TERM PLANNING RULE:\nতুমি এখন লং-টার্ম রোডম্যাপ সেশনে আছ। ৩-৫ লাইনের লিমিটেশন ভুলে যাও এবং বিস্তারিত মাইলস্টোন কষে দাও। রোডম্যাপ লক হলে মেসেজের শেষে এই ট্যাগটি দাও:\n<UPDATE_LONG_TERM>লং-টার্ম প্ল্যানের সংক্ষিপ্ত সামারি</UPDATE_LONG_TERM>"
-        temp = 0.3
-    elif context_reason == "PARSING_TARGET_UPDATE":
-        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate if user succeeded, half-done or failed. End your reply with this tag EXACTLY:\n<TARGET_PARSE>Done or Half Done or Failed</TARGET_PARSE>"
-        temp = 0.3
-    elif context_reason == "PARSING_KAIZEN_LOG":
-        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate lifestyle habit success. End your reply with this tag EXACTLY:\n<KAIZEN_LOG>goal_name|SUCCESS or FAILURE|Brief 2-3 words note in Bengali</KAIZEN_LOG>"
-        temp = 0.3
-    elif context_reason == "PARSING_KAIZEN_SET":
-        system_prompt += "\n\nSTRICT ACTION RULE:\nFinalize active lifestyle habits. End your reply with this tag:\n<KAIZEN_UPDATE>Summarized lifestyle goals</KAIZEN_UPDATE>"
-        temp = 0.3
+        system_prompt += "\n\nSTRICT LONG TERM PLANNING RULE:\nতুমি এখন লং-টার্ম রোডম্যাপ সেশনে আছ। বিস্তারিত মাইলস্টোন দাও। শেষে এই ট্যাগ দাও: <UPDATE_LONG_TERM>সামারি</UPDATE_LONG_TERM>"
 
-    # মেমোরি স্ট্রাকচার ম্যাপিং
+    # মেমোরি লোডিং
     formatted_contents = []
     for msg in user_data["chat_history"]:
-        if isinstance(msg, dict) and "role" in msg and "content" in msg:
-            role = "user" if msg["role"] == "user" else "model"
-            formatted_contents.append({
-                "role": role,
-                "parts": [{"text": str(msg["content"])}]
-            })
-
-    formatted_contents.append({
-        "role": "user",
-        "parts": [{"text": user_message}]
-    })
+        role = "user" if msg["role"] == "user" else "model"
+        formatted_contents.append({"role": role, "parts": [{"text": str(msg["content"])}]})
+    formatted_contents.append({"role": "user", "parts": [{"text": user_message}]})
 
     bot_reply = None
-    max_retries = 3
-    retry_delay = 1.0  # সেকেন্ড
-    
-    # এপিআই রিট্রাই এবং প্রোডাকশন ফলব্যাক লজিক
-    for attempt in range(max_retries):
+    # রিট্রাই লুপ (সর্বোচ্চ ৩ বার)
+    for attempt in range(3):
         try:
-            logging.info(f"⚡ Requesting Google AI Studio via: {GEMINI_MODEL} (Attempt {attempt+1}/{max_retries}, Temp: {temp})")
-            
+            logging.info(f"⚡ Requesting {GEMINI_MODEL} (Attempt {attempt+1}/3)")
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=formatted_contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=temp,
-                    # ২০ সেকেন্ডের টাইমআউট যুক্ত করা হলো (ঝুলে থাকা প্রতিরোধ করতে)
-                    http_options=types.HttpOptions(timeout=20000)
-                )
+                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=temp),
+                # ২০ সেকেন্ডের হার্ড টাইমআউট সিনট্যাক্স ঠিক করা হয়েছে
+                http_options={'timeout': 20000} 
             )
-            
-            bot_reply = response.text
-            if bot_reply:
+            if response and response.text:
+                bot_reply = response.text
                 break
-            else:
-                raise ValueError("Empty response received from API.")
-                
         except Exception as e:
-            logging.warning(f"⚠️ Attempt {attempt+1} failed with error: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff retry
+            logging.warning(f"⚠️ Attempt {attempt+1} failed: {e}")
+            if attempt < 2: time.sleep(2)
             else:
-                # ৩ বার রিট্রাই ফেইল করলে ব্যাকগ্রাউন্ডে gemini-3.1-flash-lite এ ফলব্যাক করা হবে
-                FALLBACK_MODEL = "gemini-3.1-flash-lite"
-                logging.info(f"🔄 Switching to fallback production model: {FALLBACK_MODEL}")
+                # ৩ বার ব্যর্থ হলে ৩.১ ফ্ল্যাশ লাইট এ ফলব্যাক
                 try:
-                    response = client.models.generate_content(
-                        model=FALLBACK_MODEL,
+                    logging.info("🔄 Falling back to gemini-3.1-flash-lite")
+                    res = client.models.generate_content(
+                        model="gemini-3.1-flash-lite",
                         contents=formatted_contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_prompt,
-                            temperature=temp,
-                            # ফলব্যাক মডেলেও ২০ সেকেন্ডের টাইমআউট প্রটেকশন
-                            http_options=types.HttpOptions(timeout=20000)
-                        )
+                        config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=temp),
+                        http_options={'timeout': 20000}
                     )
-                    bot_reply = response.text
-                    if bot_reply:
-                        break
-                except Exception as fallback_err:
-                    logging.error(f"❌ Fallback model also failed: {fallback_err}")
-                    return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! গুগল এআই এরর: {str(e)[:120]}", None
+                    bot_reply = res.text
+                except Exception as fe:
+                    logging.error(f"❌ Fallback also failed: {fe}")
+                    return "নেটওয়ার্ক ড্রপ খাইছে ভাই! একটু পর আবার ট্রাই কর।", None
 
+    if not bot_reply:
+        return "গুগল এআই থেকে কোনো রেসপন্স পাওয়া যায়নি।", None
+
+    # ট্যাগ প্রসেসিং এবং মেমোরি আপডেট
     try:
-        # XML ট্যাগ পার্সিং এবং ডাটাবেজ আপডেট
-        match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_up:
-            user_data["kaizen_goals"] = match_up.group(1).strip()
-            bot_reply = re.sub(r"<KAIZEN_UPDATE>.*?</KAIZEN_UPDATE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-        
-        match_lt = re.search(r"<UPDATE_LONG_TERM>(.*?)</UPDATE_LONG_TERM>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_lt:
-            user_data["long_term_plan"] = match_lt.group(1).strip()
+        if "<KAIZEN_UPDATE>" in bot_reply:
+            user_data["kaizen_goals"] = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.S).group(1).strip()
+        if "<UPDATE_LONG_TERM>" in bot_reply:
+            user_data["long_term_plan"] = re.search(r"<UPDATE_LONG_TERM>(.*?)</UPDATE_LONG_TERM>", bot_reply, re.S).group(1).strip()
             user_data["current_state"] = "NORMAL"
-            bot_reply = re.sub(r"<UPDATE_LONG_TERM>.*?</UPDATE_LONG_TERM>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-        match_log = re.search(r"<KAIZEN_LOG>(.*?)</KAIZEN_LOG>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_log:
-            try:
-                parts = match_log.group(1).strip().split("|")
-                if len(parts) >= 3: 
-                    threading.Thread(target=log_kaizen_to_sheet, args=(parts[0], parts[1], parts[2]), daemon=True).start()
-            except Exception: pass
-            bot_reply = re.sub(r"<KAIZEN_LOG>.*?</KAIZEN_LOG>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-        match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_tgt:
-            parsed_status = match_tgt.group(1).strip()
-            if parsed_status in ["Done", "Completed"]: 
-                user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
-            threading.Thread(target=save_target_to_sheet, args=(parsed_status, False), daemon=True).start()
-            bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-        match_new_tgt = re.search(r"<UPDATE_TARGET>(.*?)</UPDATE_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
-        if match_new_tgt:
-            user_data["daily_target_raw"] = match_new_tgt.group(1).strip()
+        if "<TARGET_PARSE>" in bot_reply:
+            status = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.S).group(1).strip()
+            threading.Thread(target=save_target_to_sheet, args=(status, False), daemon=True).start()
+        if "<UPDATE_TARGET>" in bot_reply:
+            user_data["daily_target_raw"] = re.search(r"<UPDATE_TARGET>(.*?)</UPDATE_TARGET>", bot_reply, re.S).group(1).strip()
             user_data["current_state"] = "NORMAL"
             threading.Thread(target=save_target_to_sheet, args=("Pending", True), daemon=True).start()
-            bot_reply = re.sub(r"<UPDATE_TARGET>.*?</UPDATE_TARGET>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
-        # সময়ের রিমাইন্ডার ডিটেক্টর
-        match_rem = re.search(r"<SET_REMINDER>(\d+)</SET_REMINDER>", bot_reply, re.IGNORECASE)
-        if match_rem:
-            bot_reply = re.sub(r"<SET_REMINDER>\d+</SET_REMINDER>", "", bot_reply, flags=re.IGNORECASE).strip()
+        # ব্রেক রিমাইন্ডার চেক
+        match_rem = re.search(r"<SET_REMINDER>(\d+)</SET_REMINDER>", bot_reply, re.I)
+        rem_time = match_rem.group(1) if match_rem else None
 
-        # মেটাডেটা ফুটার সংযুক্তি (কনটেক্সট এটাচমেন্ট ইন্ডিকেটর)
-        footer = "\n\n📂 Context Attached:\n"
-        if context_reason in ["PLANNING_MODE", "PLANNING_LONG_TERM"]:
-            footer += "• 📊 Detailed Syllabus Data (Raw Tree Attached)\n"
-            if context_reason == "PLANNING_MODE":
-                footer += "• 🔄 Spaced Revision History Loaded\n"
-        else:
-            footer += "• 📈 Syllabus Progress Summary Only\n"
-        footer += f"• 🎯 Active Target: {user_data['daily_target_raw']}\n"
-        footer += f"• 🚀 Long-term Roadmap: {'Active' if user_data['long_term_plan'] != 'কোনো দীর্ঘমেয়াদী প্ল্যান সেট করা হয়নি।' else 'None'}"
-        
+        # ক্লিনআপ ও ফুটার
+        bot_reply = re.sub(r"<(.*?)>", "", bot_reply, flags=re.S).replace("**", "").replace("#", "").strip()
+        footer = f"\n\n📂 Context: {'Raw Syllabus' if 'PLANNING' in context_reason else 'Progress Summary'}\n🎯 Target: {user_data['daily_target_raw'][:30]}..."
         bot_reply += footer
-        bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
-        
-        user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
-        if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
-            user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
+
+        user_data["chat_history"].append({"role": "user", "content": user_message})
+        user_data["chat_history"].append({"role": "model", "content": bot_reply})
+        if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
         
         threading.Thread(target=save_memory_to_sheet, daemon=True).start()
-        return bot_reply, match_rem.group(1) if match_rem else None
-            
+        return bot_reply, rem_time
     except Exception as e:
-        logging.error(f"⚠️ API Exception: {e}")
-        return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! গুগল এআই এরর: {str(e)
+        logging.error(f"Error parsing AI response: {e}")
+        return bot_reply, None
     
 
 # ==========================================
@@ -865,30 +790,35 @@ async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
     
 # ==========================================
-# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V10)
+# BLOCK 10: ENGINE RUNNER & ERROR HANDLER
 # ==========================================
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """লগ এ এরর ডিটেইলস দেখানোর জন্য"""
+    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+
 def run_dummy_server(): 
     HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    # স্টার্টআপের সময় সম্পূর্ণ ডাটাবেজ ও হিস্ট্রি একবার ফুল সিঙ্ক করা হবে (sync_history=True)
     load_from_google_sheet(sync_history=True)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # কমান্ড হ্যান্ডলার রেজিস্ট্রেশন
+    # এরর হ্যান্ডলার অ্যাড করা হলো (এটি খুব জরুরি)
+    app.add_error_handler(error_handler)
+    
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))  # /help কমান্ড রেজিস্টার করা হলো
-    app.add_handler(CommandHandler("status", status_command))  # /status কমান্ড রেজিস্টার করা হলো
-    app.add_handler(CommandHandler("report", report_command))  # /report কমান্ড রেজিস্টার করা হলো
-    app.add_handler(CommandHandler("chapters", chapters_command))  # /chapters কমান্ড রেজিস্টার করা হলো
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("chapters", chapters_command))
     
-    # মেসেজ হ্যান্ডলার রেজিস্ট্রেশন (~filters.COMMAND ফিল্টারটি উঠিয়ে নেওয়া হয়েছে যাতে /goal বা /plan চ্যাটে টাইপ করলে handle_message এ এসে সচল হয়)
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    if app.job_queue: 
-        app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
-    print("✅ Jeetu Bhaiya AI V10 (Production Final Engine) successfully initiated on background threads!")
+    if app.job_queue: 
+        app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600)
+    
+    print("✅ Jeetu Bhaiya AI V10 Initiated!")
     app.run_polling()
 
 if __name__ == '__main__': 
