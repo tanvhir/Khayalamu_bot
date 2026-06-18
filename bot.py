@@ -270,7 +270,7 @@ def parse_smart_shortcode(text):
 # BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10 - RAW SYLLABUS & DYNAMIC RECON)
 # ==========================================
 def generate_raw_syllabus_report_text():
-    """এআই এর রিয়েল-টাইম ডিসিশন মেকিংয়ের জন্য সম্পূর্ণ র-সিলবাস ট্রি জেনারেটর"""
+    """এআই এর রিয়াল-টাইম ডিসিশন মেকিংয়ের জন্য সম্পূর্ণ র-সিলবাস ট্রি জেনারেটর"""
     if not user_chapters and not user_lectures:
         return "সিলেবাসে কোনো ডেটা নেই।"
     
@@ -410,7 +410,8 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             if parsed_status in ["Done", "Completed"]: 
                 user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
             threading.Thread(target=save_target_to_sheet, args=(parsed_status, False), daemon=True).start()
-            bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | o.DOTALL).strip()
+            # এখানে o.DOTALL পরিবর্তন করে re.DOTALL করা হয়েছে (BUG FIX)
+            bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
         match_new_tgt = re.search(r"<UPDATE_TARGET>(.*?)</UPDATE_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_new_tgt:
@@ -507,7 +508,7 @@ async def generate_premium_status():
             icon = "✅" if log.get("status") == "SUCCESS" else "❌"
             msg += f"  • {log.get('date')}: {log.get('goal')} -> {icon} ({log.get('text')})\n"
     else:
-        msg += "  • এখনো কোনো লগ ডেটা জমা হয়নি।\n"
+        msg += "  • OpenAPI এবং কাইজেন ডেটা এখনো কোনো লগ ডেটা জমা হয়নি।\n"
     msg += "  (জিতু ভাইয়া তোর প্যাটার্ন নজরে রাখছে!)\n"
     return msg
 
@@ -880,7 +881,8 @@ def main():
     app.add_handler(CommandHandler("report", report_command))  # /report কমান্ড রেজিস্টার করা হলো
     app.add_handler(CommandHandler("chapters", chapters_command))  # /chapters কমান্ড রেজিস্টার করা হলো
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # মেসেজ হ্যান্ডলার রেজিস্ট্রেশন (~filters.COMMAND ফিল্টারটি উঠিয়ে নেওয়া হয়েছে যাতে /goal বা /plan চ্যাটে টাইপ করলে handle_message এ এসে সচল হয়)
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))
     if app.job_queue: 
         app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
