@@ -267,90 +267,44 @@ def parse_smart_shortcode(text):
     return "CHAPTER", ch_key, None
 
 # ==========================================
-# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10 - CRASH-PROOFED)
+# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10 - RAW SYLLABUS & DYNAMIC RECON)
 # ==========================================
 def generate_raw_syllabus_report_text():
-    """এআই এর রিয়েল-টাইম ডিসিশন মেকিংয়ের জন্য সম্পূর্ণ র-সিলবাস ট্রি জেনারেটর (সুরক্ষিত)"""
-    try:
-        if not user_chapters and not user_lectures:
-            return "সিলেবাসে কোনো ডেটা নেই।"
+    """এআই এর রিয়েল-টাইম ডিসিশন মেকিংয়ের জন্য সম্পূর্ণ র-সিলবাস ট্রি জেনারেটর"""
+    if not user_chapters and not user_lectures:
+        return "সিলেবাসে কোনো ডেটা নেই।"
+    
+    tree = {"P": {}, "C": {}, "M": {}, "B": {}}
+    for ck, info in sorted(user_chapters.items()):
+        sk = ck.split("_")[0][0]
+        if sk in tree: 
+            tree[sk][ck] = {"info": info, "lecs": []}
         
-        tree = {"P": {}, "C": {}, "M": {}, "B": {}}
-        
-        # চ্যাপ্টার ডেটা প্রসেসিং ও ডাটাবেজ ভ্যালিডেশন (ফাঁকা রো প্রতিরোধক)
-        for ck, info in sorted(user_chapters.items()):
-            if not ck or "_" not in ck:
-                continue
-            parts = ck.split("_")
-            if not parts or not parts[0]:
-                continue
-            sk = parts[0][0]
-            if sk in tree: 
-                tree[sk][ck] = {"info": info, "lecs": []}
+    for lk, info in sorted(user_lectures.items()):
+        parts = lk.split("_")
+        ck = parts[0] + "_" + parts[1]
+        sk = parts[0][0]
+        status = info.get("status") if isinstance(info, dict) else info
+        if sk in tree and ck in tree[sk]:
+            tree[sk][ck]["lecs"].append((parts[2], status))
             
-        # লেকচার ডেটা প্রসেসিং ও ভ্যালিডেশন
-        for lk, info in sorted(user_lectures.items()):
-            if not lk or "_" not in lk:
-                continue
-            parts = lk.split("_")
-            if len(parts) < 3:
-                continue
-            ck = parts[0] + "_" + parts[1]
-            sk = parts[0][0]
-            status = info.get("status") if isinstance(info, dict) else info
-            if sk in tree and ck in tree[sk]:
-                tree[sk][ck]["lecs"].append((parts[2], status))
-                
-        msg = "Detailed Syllabus Report\n"
-        msg += "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        
-        has_data = False
-        for sk in ["P", "C", "M", "B"]:
-            if tree[sk]:
-                has_data = True
-                msg += f" {SUBJECT_NAMES[sk]}\n\n"
-                for ck, obj in tree[sk].items():
-                    ch_name = CHAPTER_NAMES.get(ck, ck)
-                    info = obj["info"]
-                    msg += f"📁 {ch_name} ({ck.split('_')[1]}) -> [Progress: {info.get('progress','0/0')}]\n"
-                    msg += f"  ├── Note: {info.get('note','Pending')} | Practice: {info.get('practice','Pending')} | Exam: {info.get('exam','Pending')}\n"
-                    msg += "  └── Lectures:\n"
-                    for idx, (l_num, stat) in enumerate(obj["lecs"]):
-                        connector = "└──" if idx == len(obj["lecs"]) - 1 else "├──"
-                        msg += f"      {connector} {l_num} ── {'Class Done' if stat=='Done' else 'Pending'}\n"
-                    msg += "\n"
-                    
-        if not has_data:
-            return "সিলেবাসে কোনো কার্যকর চ্যাপ্টার ডেটা খুঁজে পাওয়া যায়নি।"
-        return msg
-        
-    except Exception as e:
-        logging.error(f"Error in generate_raw_syllabus_report_text: {e}")
-        return "সিলেবাস রিপোর্ট প্রসেস করার সময় একটি কারিগরি ত্রুটি ঘটেছে।"
-
-def get_live_summary_context(context_reason="NORMAL"):
-    try:
-        backlogs, revs = calculate_revision_and_backlogs()
-        
-        # প্ল্যানিং মোডে এআইকে সম্পূর্ণ র-সিলেবাস ডেটা পাঠিয়ে দেওয়া হচ্ছে
-        if context_reason in ["PLANNING_MODE", "PLANNING_LONG_TERM"]:
-            full_report = generate_raw_syllabus_report_text()
-            summary = f"ইউজারের লাইভ র-সিলেবাস ডেটা রিপোর্ট:\n{full_report}\n"
-            summary += f"টোটাল ব্যাকলগ লেকচার সংখ্যা: {backlogs}টি।\n"
-            if revs:
-                summary += f"স্পেসড রিভিশনের জন্য ডিউ টপিকসমূহ: {', '.join(revs)}।"
-            return summary
-        else:
-            # সাধারণ চ্যাটের জন্য শুধু শর্ট সামারি টোকেন বাঁচাবে
-            summary = f"ব্যাকলগ লেকচার সংখ্যা: {backlogs}টি। "
-            if revs:
-                summary += f"আজকে বৈজ্ঞানিক রিভিশনের জন্য উপযুক্ত টপিক: {', '.join(revs[:2])}।"
-            else:
-                summary += "নতুন কোনো রিভিশন ডিউ নেই।"
-            return summary
-    except Exception as e:
-        logging.error(f"Error in get_live_summary_context: {e}")
-        return "লাইভ স্ট্যাটাস সামারি লোড করার সময় একটি ত্রুটি ঘটেছে।"
+    msg = "Detailed Syllabus Report\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for sk in ["P", "C", "M", "B"]:
+        if tree[sk]:
+            msg += f" {SUBJECT_NAMES[sk]}\n\n"
+            for ck, obj in tree[sk].items():
+                ch_name = CHAPTER_NAMES.get(ck, ck)
+                info = obj["info"]
+                msg += f"📁 {ch_name} ({ck.split('_')[1]}) -> [Progress: {info.get('progress','0/0')}]\n"
+                msg += f"  ├── Note: {info.get('note','Pending')} | Practice: {info.get('practice','Pending')} | Exam: {info.get('exam','Pending')}\n"
+                msg += "  └── Lectures:\n"
+                for idx, (l_num, stat) in enumerate(obj["lecs"]):
+                    connector = "└──" if idx == len(obj["lecs"]) - 1 else "├──"
+                    msg += f"      {connector} {l_num} ── {'Class Done' if stat=='Done' else 'Pending'}\n"
+                msg += "\n"
+    return msg
 
 def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") -> tuple:
     global client
@@ -360,10 +314,10 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             except Exception as e: return f"গুগল ক্লায়েন্ট এপিআই সংযোগ ত্রুটি: {str(e)[:120]}", None
         else: return "API Key Missing!", None
     
+    # কন্টেক্সট অনুযায়ী র-ডেটা অথবা শর্ট সামারি ডাইনামিকালি লোড হবে
+    dynamic_context = get_live_summary_context(context_reason)
+    
     try:
-        # কন্টেক্সট অনুযায়ী র-ডেটা অথবা শর্ট সামারি ডাইনামিকালি লোড হবে (সম্পূর্ণ ট্রাই ব্লকের ভেতরে)
-        dynamic_context = get_live_summary_context(context_reason)
-        
         system_prompt = SYSTEM_PROMPT_BASE.format(
             current_time=get_bd_time().strftime("%I:%M %p"),
             daily_target_raw=user_data["daily_target_raw"],
@@ -374,11 +328,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         )
     except Exception as fe:
         logging.error(f"Prompt formatting failed: {fe}. Falling back to safe replacement.")
-        try:
-            dynamic_context = get_live_summary_context(context_reason)
-        except Exception:
-            dynamic_context = "সিলেবাস সামারি লোড করা সম্ভব হয়নি।"
-            
         system_prompt = SYSTEM_PROMPT_BASE.replace("{current_time}", get_bd_time().strftime("%I:%M %p")) \
                                             .replace("{daily_target_raw}", str(user_data["daily_target_raw"])) \
                                             .replace("{kaizen_goals}", str(user_data["kaizen_goals"])) \
