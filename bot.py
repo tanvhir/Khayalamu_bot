@@ -171,7 +171,7 @@ def get_bd_time():
     return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 
 # ==========================================
-# BLOCK 3: GOOGLE SHEETS API SYNC & MIGRATION CONNECTORS
+# BLOCK 3: GOOGLE SHEETS API SYNC & MIGRATION CONNECTORS (V9.2)
 # ==========================================
 def save_memory_to_sheet():
     if not APPS_SCRIPT_URL: return
@@ -213,7 +213,7 @@ def log_kaizen_to_sheet(goal_name, status, log_text):
     try: requests.post(APPS_SCRIPT_URL, json={"chat_id": str(ALLOWED_CHAT_ID), "kaizen_log_update": True, "goal_name": goal_name, "status": status, "log_text": log_text}, timeout=10)
     except Exception: pass
 
-def load_from_google_sheet():
+def load_from_google_sheet(sync_history=True):
     global user_data, user_chapters, user_lectures
     if not APPS_SCRIPT_URL: return
     try:
@@ -222,13 +222,15 @@ def load_from_google_sheet():
             data = res.json()
             if data.get("found"):
                 user_data["daily_target_raw"] = data.get("target", "No target set yet.")
-                user_data["chat_history"] = data.get("chat_history", [])
                 user_data["kaizen_goals"] = data.get("kaizen_goals", "কোনো কাইজেন প্ল্যান সেট করা হয়নি।")
                 user_data["long_term_plan"] = data.get("long_term_plan", "কোনো দীর্ঘমেয়াদী প্ল্যান সেট করা হয়নি।")
                 user_data["kaizen_logs"] = data.get("kaizen_logs", [])
                 user_chapters = data.get("chapters", {})
                 user_lectures = data.get("lectures", {})
-                logging.info("✅ V9 Core Synchronization Complete.")
+                # বাটন ক্লিকে চলমান হিস্ট্রি যাতে ওভাররাইট না হয় তার সুরক্ষা
+                if sync_history:
+                    user_data["chat_history"] = data.get("chat_history", [])
+                logging.info("✅ V9.2 Core Synchronization Complete.")
     except Exception as e: logging.error(f"Sheet Loading Error: {e}")
 
 # ==========================================
@@ -528,9 +530,9 @@ def get_syllabus_keyboard():
         ['Back to Main Menu']
     ], resize_keyboard=True)
 
-# ======================================================
-# BLOCK 8: MESSAGE PROCESSOR & STATE CONTROLLER (V9.1)
-# ======================================================
+# ==========================================
+# BLOCK 8: MESSAGE PROCESSOR & STATE CONTROLLER (V9.2 - ডাইনামিক মর্নিং সিঙ্ক সহ)
+# ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     user_data["current_state"] = "NORMAL"
@@ -550,21 +552,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     state = user_data["current_state"]
 
-    # --- ১. সকালের ফাস্ট মেসেজ ডিটেকশন ---
+    # --- ১. সকালের ফাস্ট মেসেজ ডিটেকশন (সম্পূর্ণ ডাইনামিক ও এআই-ভিত্তিক) ---
     today_str = get_bd_time().strftime("%Y-%m-%d")
     if user_data["last_interaction_date"] != today_str:
         user_data["last_interaction_date"] = today_str
-        user_data["current_state"] = "MORNING_CHECKIN"
-        msg = "কিরে ভাই, ঘুম থেকে উঠলি নাকি? ফ্রেশ ফ্রেশ হয়ে আয় একটু চা খেয়ে নে, তারপর বলতেছি আজকে কি কি নিয়ে বসা যায়।"
-        return await update.message.reply_text(msg)
+        # এআই দিয়ে সরাসরি মেমরিতে রেখে অর্গানিক গ্রিটিং জেনারেট করানো হচ্ছে
+        reply, rem_time = generate_openrouter_chat("[SYSTEM_ALERT: This is the user's first interaction today. Greet them warmly and casually in Bengali, ask if they are ready/fresh, and encourage them to click 'Planning Mode' to schedule today's mission.]", "NORMAL")
+        if rem_time and context.job_queue:
+            context.job_queue.run_once(scheduled_reminder_callback, when=int(rem_time)*60, chat_id=update.effective_chat.id)
+        return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
-    # --- ২. সকালের চেকইন হ্যান্ডলিং ---
-    if state == "MORNING_CHECKIN":
-        user_data["current_state"] = "NORMAL"
-        msg = "চল তাইলে, আজকে তোকে মারাত্মক একটা সিলেবাস কাভার করতে হবে। নিচের 'প্লানিং মোড' বাটন টা চেপে আজকের সুন্দর মিশনটা ফাইনাল করে ফেল।"
-        return await update.message.reply_text(msg, reply_markup=get_main_keyboard())
-
-    # --- ৩. গ্লোবাল মেনু বাটন নেভিগেশন ---
+    # --- ২. গ্লোবাল মেনু বাটন নেভিগেশন ---
     if text == 'Check Status': 
         return await update.message.reply_text(await generate_premium_status())
     elif text == 'Syllabus Report': 
@@ -578,14 +576,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == 'প্লানিং মোড': 
         user_data["current_state"] = "PLANNING_MODE"
-        # সিলেবাস ইনজেকশন নিশ্চিত করতে গুগল শিট লোড করি
-        load_from_google_sheet()
+        # সিলেবাস লোড হবে কিন্তু চ্যাট মেমোরি রিসেট হবে না (sync_history=False)
+        load_from_google_sheet(sync_history=False)
         msg = "তুই এখন প্লানিং মোডে আছিস। ভাইয়ার কাছে তোর পুরো সিলেবাস রিপোর্ট রেডি আছে। বল আজকে কি কি কাভার করবি আর কোনটার পেছনে কতক্ষণ সময় দিবি?"
         return await update.message.reply_text(msg)
         
     elif text == 'লং-টার্ম গোল সেট':
         user_data["current_state"] = "PLANNING_LONG_TERM"
-        load_from_google_sheet()
+        # সিলেবাস লোড হবে কিন্তু চ্যাট মেমোরি রিসেট হবে না (sync_history=False)
+        load_from_google_sheet(sync_history=False)
         msg = "চল একটা স্ট্রং লং-টার্ম রোডম্যাপ সাজাই। তোর কোচিংয়ের বর্তমান অবস্থা কি আর কবে নাগাদ ব্যাকলগ শেষ করে ট্র্যাকে ফিরতে চাস বুঝিয়ে বল ভাইয়াকে।"
         return await update.message.reply_text(msg)
 
@@ -599,7 +598,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["current_state"] = "WAITING_FOR_KAIZEN_UPDATE"
         return await update.message.reply_text("কালকের কাইজেন গোলটা পারলি নাকি ভেস্তে গেল?")
 
-    # --- ৪. সাব-মেনু কমান্ডস ---
+    # --- ৩. সাব-মেনু কমান্ডস ---
     elif text == 'Add New Lecture': 
         user_data["current_state"] = "WAITING_FOR_ADD"
         return await update.message.reply_text("কোন লেকচারটা অ্যাড করতে চাস বল? (যেমন: P1 C2 L1 বা P1 C2 L1-10)")
@@ -619,7 +618,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "STATE_SYLLABUS_MENU":
         return await update.message.reply_text("সিলেবাস বাটনগুলো ব্যবহার কর অথবা 'Back to Main Menu' ক্লিক কর।", reply_markup=get_syllabus_keyboard())
 
-    # --- ৫. আইসোলেটেড স্টেট ট্র্যাপ এবং সাব-স্টেট প্রসেসিং ---
+    # --- ৪. আইসোলেটেড স্টেট ট্র্যাপ এবং সাব-স্টেট প্রসেসিং ---
     if state == "PLANNING_MODE":
         reply, rem_time = generate_openrouter_chat(text, "PLANNING_MODE")
         if rem_time and context.job_queue:
@@ -645,9 +644,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply, _ = generate_openrouter_chat(text, "PARSING_KAIZEN_LOG")
         return await update.message.reply_text(reply, reply_markup=get_main_keyboard())
 
-    # --- ৬. সিলেবাস ইন-মেমোরি প্রসেসর (বাল্ক মাল্টিপল ইনপুট কাস্টম নেম সহ) ---
+    # --- ৫. সিলেবাস ইন-মেমোরি প্রসেসর (বাল্ক মাল্টিপল ইনপুট কাস্টম নেম সহ) ---
     elif state == "WAITING_FOR_ADD":
-        # লাইন ব্রেক অনুযায়ী ইনপুটগুলোকে আলাদা করা হচ্ছে
         lines = [line.strip() for line in text.split("\n") if line.strip()]
         success_count = 0
         success_messages = []
@@ -659,7 +657,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 errors.append(f"'{line}' -> কোড সঠিক নয়")
                 continue
             
-            # চ্যাপ্টারের বাংলা নাম ডিকশনারি থেকে বের করা হচ্ছে, না থাকলে কোডটাই দেখাবে
             ch_name = CHAPTER_NAMES.get(ch_key, ch_key)
             
             if ch_key not in user_chapters: 
@@ -720,11 +717,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["current_state"] = "STATE_SYLLABUS_MENU"
         return await update.message.reply_text(f"চ্যাপ্টারের {task.capitalize()} সফলভাবে ডান মার্ক করা হয়েছে!", reply_markup=get_syllabus_keyboard())
 
-    # --- ৭. ক্যাজুয়াল নরমাল চ্যাট হ্যান্ডলিং ---
+    # --- ৬. ক্যাজুয়াল নরমাল চ্যাট হ্যান্ডলিং ---
     reply, rem_time = generate_openrouter_chat(text, "NORMAL")
     if rem_time and context.job_queue:
         context.job_queue.run_once(scheduled_reminder_callback, when=int(rem_time)*60, chat_id=update.effective_chat.id)
     await update.message.reply_text(reply)
+    
 
 # ===================================================
 # BLOCK 9: HOURLY CHECK-INS & SPECIAL COMMANDS (V9.1)
@@ -778,27 +776,28 @@ async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text(msg)
     
-# =============================================
-# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V9.1)
-# =============================================
+# ==========================================
+# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V9.2)
+# ==========================================
 def run_dummy_server(): 
     HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
 
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    load_from_google_sheet()
+    # স্টার্টআপের সময় সম্পূর্ণ ডাটাবেজ ও হিস্ট্রি একবার ফুল সিঙ্ক করা হবে (sync_history=True)
+    load_from_google_sheet(sync_history=True)
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # কমান্ড হ্যান্ডলার রেজিস্ট্রেশন
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", start))
-    app.add_handler(CommandHandler("chapters", chapters_command))  # /chapters কমান্ড রেজিস্টার করা হলো
+    app.add_handler(CommandHandler("chapters", chapters_command))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     if app.job_queue: 
         app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
-    print("✅ Jeetu Bhaiya AI V9 (Production Master Engine) successfully initiated on background threads!")
+    print("✅ Jeetu Bhaiya AI V9.2 (Production Stable Engine) successfully initiated on background threads!")
     app.run_polling()
 
 if __name__ == '__main__': 
