@@ -1014,33 +1014,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
 
     # ==========================================
-    # ৬. সকালের ১ম চ্যাটের ডাইনামিক গ্রিটিংস
+    # ৬. ক্যাজুয়াল চ্যাট হ্যান্ডলিং (সাইলেন্ট ডেট ট্র্যাক সহ)
     # ==========================================
-    if user_data["last_interaction_date"] != today_str:
-        user_data["last_interaction_date"] = today_str
-        
-        bd_now = get_bd_time()
-        current_hour = bd_now.hour
-        if 5 <= current_hour < 12:
-            time_label = "সকাল (Morning)"
-        elif 12 <= current_hour < 16:
-            time_label = "দুপুর (Afternoon)"
-        elif 16 <= current_hour < 19:
-            time_label = "বিকাল (Evening)"
-        elif 19 <= current_hour < 23:
-            time_label = "রাত (Night)"
-        else:
-            time_label = "গভীর রাত (Late Night)"
-            
-        system_trigger_msg = f"[SYSTEM_ALERT: This is Tanvir's first interaction of the day. Greet him warmly labeled: {time_label}. Ask how he is feeling at this time and guide him to use /plan spell to schedule his goals. Keep the Kotafactory persona intact.]"
-        
-        reply, _ = generate_openrouter_chat(system_trigger_msg, "NORMAL")
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
-
-    # ==========================================
-    # ৭. ক্যাজুয়াল চ্যাট হ্যান্ডলিং
-    # ==========================================
+    user_data["last_interaction_date"] = today_str
     reply, _ = generate_openrouter_chat(text, "NORMAL")
     footer = get_clean_footer("NORMAL")
     await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
