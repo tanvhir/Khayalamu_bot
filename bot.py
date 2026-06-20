@@ -303,7 +303,7 @@ def parse_smart_shortcode(text):
     return "CHAPTER", ch_key, None
 
 # ==========================================
-# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10.1 Pure AI-in-the-Loop)
+# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10.1 Reminder Fixed)
 # ==========================================
 def generate_raw_syllabus_report_text():
     if not user_chapters and not user_lectures:
@@ -388,15 +388,13 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
 
     temp = 0.7
     if context_reason == "PLANNING_MODE":
-        # /plan কমান্ডে কোনো গুগল শিট রাইট পারমিশন নেই (নো মেমরি এডিটিং ট্যাগস)
         system_prompt += "\n\nSTRICT PLANNING MODE RULE:\n" \
-                         "তোর এখন গুগল শিটে টার্গেট যোগ করার বা পরিবর্তন করার কোনো ক্ষমতা নেই। তুই কেবল তানভীরের সাথে আলোচনা করে সুন্দরভাবে পড়াশোনার প্ল্যান সাজিয়ে দিবি। টার্গেটের ডাটাবেজ নিয়ে কোনো ট্যাগ (যেমন <SET_TARGET>, <TARGET_PARSE>, <UPDATE_TARGET>) এখানে তৈরি করবি না। তানভীরের সাথে টার্গেট চূড়ান্ত হলে তাকে বলবি: 'টার্গেট লক করতে চাইলে /target [final target text] লিখে দে ভাই।'"
+                         "তোর এখন গুগল শিটে টার্গেট যোগ করার বা পরিবর্তন করার কোনো ক্ষমতা নেই। তুমি কেবল তানভীরের সাথে আলোচনা করে সুন্দরভাবে পড়াশোনার প্ল্যান সাজিয়ে দিবি। টার্গেটের ডাটাবেজ নিয়ে কোনো ট্যাগ (যেমন <SET_TARGET>, <TARGET_PARSE>, <UPDATE_TARGET>) এখানে তৈরি করবি না। তানভীরের সাথে টার্গেট চূড়ান্ত হলে তাকে বলবি: 'টার্গেট লক করতে চাইলে /target [final target text] লিখে দে ভাই।'"
         temp = 0.3
     elif context_reason == "PLANNING_LONG_TERM":
         system_prompt += "\n\nSTRICT LONG TERM PLANNING RULE:\nতুমি এখন লং-টার্ম রোডম্যাপ সেশনে আছ। মেসেজের শেষে এই ট্যাগটি দাও:\n<UPDATE_LONG_TERM>লং-টার্ম প্ল্যানের সংক্ষিপ্ত সামারি</UPDATE_LONG_TERM>"
         temp = 0.3
     elif context_reason == "PARSING_CUSTOM_TARGET":
-        # /target কমান্ডের স্পেসিফিকেশন: নতুন সেট অথবা ভুল সংশোধন (ইন-প্লেস ওভাররাইট)
         system_prompt += "\n\nSTRICT TARGET SETTING RULES:\n" \
                          "1. If Tanvir is correcting a mistake in his active target, complained about duplicate entries, or is correcting Jeetu Bhaiya's misunderstanding, end your reply with this tag EXACTLY:\n" \
                          "<OVERWRITE_TARGET>Corrected Target Description Text|ভুল সংশোধন</OVERWRITE_TARGET>\n" \
@@ -404,7 +402,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
                          "<SET_TARGET>Summarized Target Description</SET_TARGET>"
         temp = 0.3
     elif context_reason == "PARSING_TARGET_UPDATE":
-        # /tupdate কমান্ডের স্পেসিফিকেশন: শুধু একটিভ টার্গেট আপডেট (নো নিউ রো ক্রিয়েশন)
         system_prompt += "\n\nSTRICT PROGRESS UPDATE RULES:\n" \
                          "Tanvir has sent a progress update regarding his current target. Analyze if he completed it (Done), partially did it (Half Done), or failed. DO NOT set or modify any description text. You must ONLY output this tag EXACTLY:\n" \
                          "<TARGET_PARSE>Done or Half Done or Failed|২-৩ শব্দের বাংলা নোট/রিমার্কস</TARGET_PARSE>"
@@ -448,7 +445,7 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         bot_reply = response.text
         if not bot_reply: raise ValueError("Empty response received.")
             
-        # V10.1 Pure Command Interceptor Engine
+        # V10.1 Smart Overwrite Feature Integration
         match_overwrite = re.search(r"<OVERWRITE_TARGET>(.*?)</OVERWRITE_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_overwrite:
             payload = match_overwrite.group(1).strip()
@@ -500,9 +497,13 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             if status in ["Done", "Completed"]: 
                 user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
             
-            # This is an update, is_new is STRICTLY False!
             threading.Thread(target=save_target_to_sheet, args=(status, False, remarks), daemon=True).start()
             bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+
+        # V10.1 Smart Reminder Tag Extractor
+        match_rem = re.search(r"<SET_REMINDER>(\d+)</SET_REMINDER>", bot_reply, re.IGNORECASE)
+        if match_rem:
+            bot_reply = re.sub(r"<SET_REMINDER>\d+</SET_REMINDER>", "", bot_reply, flags=re.IGNORECASE).strip()
 
         bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
         
@@ -511,7 +512,9 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
         
         threading.Thread(target=save_memory_to_sheet, daemon=True).start()
-        return bot_reply, None
+        
+        # 🎯 ফিক্সড: জেমিনি থেকে পাওয়া রিমাইন্ডার মিনিট পাইথন ইঞ্জিনে ফেরত পাঠানো হচ্ছে
+        return bot_reply, match_rem.group(1) if match_rem else None
             
     except Exception as e:
         logging.error(f"⚠️ API Network Exception: {e}")
