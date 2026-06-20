@@ -37,7 +37,13 @@ if GEMINI_API_KEY:
     except Exception as e:
         logging.error(f"Failed to initialize Google GenAI client: {e}")
 
-# Memory State Machine - V10 (Fixed)
+# Pure BD Timezone (UTC+6)
+BD_TZ = datetime.timezone(datetime.timedelta(hours=6))
+
+def get_bd_time():
+    return datetime.datetime.now(BD_TZ)
+
+# Memory State Machine - V10.1 (Fixed)
 user_data = {
     "daily_target_raw": "No target set yet.",
     "current_state": "NORMAL", 
@@ -45,7 +51,9 @@ user_data = {
     "kaizen_goals": "কোনো কাইজেন প্ল্যান সেট করা হয়নি।",
     "long_term_plan": "কোনো দীর্ঘমেয়াদী প্ল্যান সেট করা হয়নি।",
     "kaizen_logs": [],
-    "last_interaction_date": ""  
+    "last_interaction_date": "",
+    "pending_update_text": "",      # V10.1 Multi-Target Memory
+    "pending_targets_list": []       # V10.1 Multi-Target List
 }
 MAX_HISTORY_LENGTH = 12
 
@@ -151,7 +159,7 @@ def get_bd_time():
     return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 
 # ==========================================
-# BLOCK 3: GOOGLE SHEETS API SYNC & CONNECTORS (V10)
+# BLOCK 3: GOOGLE SHEETS API SYNC & CONNECTORS (V10.1)
 # ==========================================
 def save_memory_to_sheet():
     if not APPS_SCRIPT_URL: return
@@ -167,9 +175,17 @@ def save_memory_to_sheet():
     except Exception as e:
         logging.error(f"Error saving memory: {e}")
 
-def save_target_to_sheet(status="Pending", is_new=False):
+def save_target_to_sheet(status="Pending", is_new=False, remarks=""):
     if not APPS_SCRIPT_URL: return
-    try: requests.post(APPS_SCRIPT_URL, json={"chat_id": str(ALLOWED_CHAT_ID), "target_update": True, "target": user_data["daily_target_raw"], "target_status": status, "is_new": is_new}, timeout=10)
+    try: 
+        requests.post(APPS_SCRIPT_URL, json={
+            "chat_id": str(ALLOWED_CHAT_ID), 
+            "target_update": True, 
+            "target": user_data["daily_target_raw"], 
+            "target_status": status, 
+            "remarks": remarks, # V10.1 AI-driven remarks
+            "is_new": is_new
+        }, timeout=10)
     except Exception: pass
 
 def post_lecture_to_sheet(ch_key, lec_num, status="Pending"):
@@ -190,7 +206,14 @@ def post_chapter_task_to_sheet(ch_key, task_type, status="Done"):
 
 def log_kaizen_to_sheet(goal_name, status, log_text):
     if not APPS_SCRIPT_URL: return
-    try: requests.post(APPS_SCRIPT_URL, json={"chat_id": str(ALLOWED_CHAT_ID), "kaizen_log_update": True, "goal_name": goal_name, "status": status, "log_text": log_text}, timeout=10)
+    try: 
+        requests.post(APPS_SCRIPT_URL, json={
+            "chat_id": str(ALLOWED_CHAT_ID), 
+            "kaizen_log_update": True, 
+            "goal_name": goal_name, 
+            "status": status, 
+            "log_text": log_text
+        }, timeout=10)
     except Exception: pass
 
 def load_from_google_sheet(sync_history=True):
@@ -280,7 +303,7 @@ def parse_smart_shortcode(text):
     return "CHAPTER", ch_key, None
 
 # ==========================================
-# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (NO-FOOTER SAVING)
+# BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10.1)
 # ==========================================
 def generate_raw_syllabus_report_text():
     if not user_chapters and not user_lectures:
@@ -309,7 +332,6 @@ def generate_raw_syllabus_report_text():
             for ck, obj in tree[sk].items():
                 ch_name = CHAPTER_NAMES.get(ck, ck)
                 info = obj["info"]
-                # আপডেট করা নতুন লাইন:
                 prog_display = get_chapter_progress_bar(info.get('progress', '0/0'))
                 msg += f"📁 {ch_name} ({ck.split('_')[1]}) {prog_display}\n"
                 msg += f"  ├── Note: {info.get('note','Pending')} | Practice: {info.get('practice','Pending')} | Exam: {info.get('exam','Pending')}\n"
@@ -321,7 +343,6 @@ def generate_raw_syllabus_report_text():
     return msg
 
 def get_clean_footer(context_reason: str) -> str:
-    """মিনিমালিস্ট ও ক্লিন ফুটার জেনারেটর (ফোল্ডার ছাড়া অন্য ইমোজি রিমুভড)"""
     footer = "\n\n📂 Context Attached:\n"
     if context_reason in ["PLANNING_MODE", "PLANNING_LONG_TERM"]:
         footer += "• Syllabus Progress: Detailed Raw Tree Attached\n"
@@ -342,8 +363,8 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
     if not client:
         if GEMINI_API_KEY:
             try: client = genai.Client(api_key=GEMINI_API_KEY)
-            except Exception as e: return f"গুগল ক্লায়েন্ট এপিআই সংযোগ ত্রুটি: {str(e)[:120]}", None
-        else: return "API Key Missing!", None
+            except Exception as e: return f"⚠️ গুগল ক্লায়েন্ট এপিআই সংযোগ ত্রুটি: {str(e)[:120]}", None
+        else: return "⚠️ API Key Missing!", None
     
     dynamic_context = get_live_summary_context(context_reason)
     
@@ -372,26 +393,34 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
     elif context_reason == "PLANNING_LONG_TERM":
         system_prompt += "\n\nSTRICT LONG TERM PLANNING RULE:\nতুমি এখন লং-টার্ম রোডম্যাপ সেশনে আছ। ৩-৫ লাইনের লিমিটেশন ভুলে যাও এবং বিস্তারিত মাইলস্টোন কষে দাও। রোডম্যাপ লক হলে মেসেজের শেষে এই ট্যাগটি দাও:\n<UPDATE_LONG_TERM>লং-টার্ম প্ল্যানের সংক্ষিপ্ত সামারি</UPDATE_LONG_TERM>"
         temp = 0.3
+    elif context_reason == "PARSING_CUSTOM_TARGET": # V10.1 New Context
+        system_prompt += "\n\nSTRICT ACTION RULE:\nAnalyze the user's message and extract a concise daily study target. Convert custom text to an objective plan. End your reply with this tag EXACTLY:\n<SET_TARGET>Extracted Target Text</SET_TARGET>"
+        temp = 0.3
     elif context_reason == "PARSING_TARGET_UPDATE":
-        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate if user succeeded, half-done or failed. End your reply with this tag EXACTLY:\n<TARGET_PARSE>Done or Half Done or Failed</TARGET_PARSE>"
+        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate if user succeeded, half-done or failed based on their chat. End your reply with this tag EXACTLY returning the status and a 2-3 words realistic bangla note for sheet remarks separated by a pipe (|):\n<TARGET_PARSE>Done or Half Done or Failed|২-৩ শব্দের নোট</TARGET_PARSE>"
         temp = 0.3
     elif context_reason == "PARSING_KAIZEN_LOG":
-        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate lifestyle habit success. End your reply with this tag EXACTLY:\n<KAIZEN_LOG>goal_name|SUCCESS or FAILURE|Brief 2-3 words note in Bengali</KAIZEN_LOG>"
+        system_prompt += "\n\nSTRICT ACTION RULE:\nEvaluate lifestyle habit success or failure from user message. End your reply with this tag EXACTLY:\n<KAIZEN_LOG>goal_name|SUCCESS or FAILURE|Brief 2-3 words note in Bengali</KAIZEN_LOG>"
         temp = 0.3
     elif context_reason == "PARSING_KAIZEN_SET":
         system_prompt += "\n\nSTRICT ACTION RULE:\nFinalize active lifestyle habits. End your reply with this tag:\n<KAIZEN_UPDATE>Summarized lifestyle goals</KAIZEN_UPDATE>"
         temp = 0.3
 
-    formatted_contents = []
+    # V10.1 Feature 2: Consecutive Message Compressor
+    compressed_history = []
     for msg in user_data["chat_history"]:
         if isinstance(msg, dict) and "role" in msg and "content" in msg:
             role = "user" if msg["role"] == "user" else "model"
-            formatted_contents.append({
-                "role": role,
-                "parts": [{"text": str(msg["content"])}]
-            })
+            if compressed_history and compressed_history[-1]["role"] == role and role == "model":
+                # ব্যাকগ্রাউন্ডে জমতে থাকা মেসেজগুলোকে এআই-এর কাছে পাঠানোর আগে মার্জ করে ফেলা হচ্ছে
+                compressed_history[-1]["parts"][0]["text"] += "\n\n[অতিরিক্ত ব্যাকগ্রাউন্ড আপডেট]: " + str(msg["content"])
+            else:
+                compressed_history.append({
+                    "role": role,
+                    "parts": [{"text": str(msg["content"])}]
+                })
 
-    formatted_contents.append({
+    compressed_history.append({
         "role": "user",
         "parts": [{"text": user_message}]
     })
@@ -401,7 +430,7 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         
         response = client.models.generate_content(
             model=GEMINI_MODEL,
-            contents=formatted_contents,
+            contents=compressed_history,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=temp
@@ -411,7 +440,13 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         bot_reply = response.text
         if not bot_reply: raise ValueError("Empty response received.")
             
-        # XML ট্যাগ পার্সিং ও ডাটাবেজ প্রসেসিং
+        # V10.1 XML Tag Parser Engine
+        match_set_tgt = re.search(r"<SET_TARGET>(.*?)</SET_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
+        if match_set_tgt:
+            user_data["daily_target_raw"] = match_set_tgt.group(1).strip()
+            threading.Thread(target=save_target_to_sheet, args=("Pending", True, "নতুন সেট করা টার্গেট"), daemon=True).start()
+            bot_reply = re.sub(r"<SET_TARGET>.*?</SET_TARGET>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
+
         match_up = re.search(r"<KAIZEN_UPDATE>(.*?)</KAIZEN_UPDATE>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_up:
             user_data["kaizen_goals"] = match_up.group(1).strip()
@@ -434,17 +469,25 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
 
         match_tgt = re.search(r"<TARGET_PARSE>(.*?)</TARGET_PARSE>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_tgt:
-            parsed_status = match_tgt.group(1).strip()
-            if parsed_status in ["Done", "Completed"]: 
+            parsed_payload = match_tgt.group(1).strip()
+            status = "Half Done"
+            remarks = "রিয়েলিস্টিক নোট"
+            if "|" in parsed_payload:
+                status, remarks = parsed_payload.split("|", 1)
+            else:
+                status = parsed_payload
+                
+            if status in ["Done", "Completed"]: 
                 user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
-            threading.Thread(target=save_target_to_sheet, args=(parsed_status, False), daemon=True).start()
+            
+            threading.Thread(target=save_target_to_sheet, args=(status, False, remarks), daemon=True).start()
             bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
         match_new_tgt = re.search(r"<UPDATE_TARGET>(.*?)</UPDATE_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_new_tgt:
             user_data["daily_target_raw"] = match_new_tgt.group(1).strip()
             user_data["current_state"] = "NORMAL"
-            threading.Thread(target=save_target_to_sheet, args=("Pending", True), daemon=True).start()
+            threading.Thread(target=save_target_to_sheet, args=("Pending", True, "নতুন রুটিন প্ল্যান"), daemon=True).start()
             bot_reply = re.sub(r"<UPDATE_TARGET>.*?</UPDATE_TARGET>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
         match_rem = re.search(r"<SET_REMINDER>(\d+)</SET_REMINDER>", bot_reply, re.IGNORECASE)
@@ -453,7 +496,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
 
         bot_reply = bot_reply.replace("**", "").replace("#", "").strip()
         
-        # ⚠️ ফিক্স: মেমোরি হিস্ট্রিতে শুধু পিওর বট রিপ্লাই থাকবে, এক্সটার্নাল ফুটার কখনোই হিস্ট্রিতে সেভ হবে না!
         user_data["chat_history"].extend([{"role": "user", "content": user_message}, {"role": "assistant", "content": bot_reply}])
         if len(user_data["chat_history"]) > MAX_HISTORY_LENGTH: 
             user_data["chat_history"] = user_data["chat_history"][-MAX_HISTORY_LENGTH:]
@@ -462,9 +504,14 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         return bot_reply, match_rem.group(1) if match_rem else None
             
     except Exception as e:
-        logging.error(f"⚠️ API Exception: {e}")
-        return f"নেটওয়ার্ক ড্রপ খাইছে ভাই! গুগল এআই এরর: {str(e)[:120]}", None
-
+        # V10.1 Feature 3: No Silent Failure
+        logging.error(f"⚠️ API Network Exception: {e}")
+        error_alert = f"⚠️ নেটওয়ার্ক ড্রপ বা ইন্টারনাল সার্ভার এরর খাইছে ভাই!\n" \
+                      f"• স্ট্যাটাস: Google Gemini API Offline (500/503)\n" \
+                      f"• ট্র্যাকিং ডিটেইলস: {str(e)[:150]}\n" \
+                      f"জিতু ভাইয়া ব্যাকগ্রাউন্ডে সাইলেন্টলি ফেইল না করে তোকে এলার্ট জানিয়ে দিল। একটু পর আবার মেসেজ দে!"
+        return error_alert, None
+        
 # ==========================================
 # BLOCK 6: DASHBOARDS & REPORTS
 # ==========================================
@@ -584,11 +631,8 @@ def get_remove_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ALLOWED_CHAT_ID: return
     user_data["current_state"] = "NORMAL"
-    
-    # ডায়লগ আর স্পেল বুকের মাঝে সুন্দর স্পেসিং রাখা হয়েছে
     msg = "কি খবর? আমি তোর মেন্টর জিতু ভাইয়া। প্রেসার ফিল হচ্ছে? DON'T! Your only pressure right now should be atmospheric pressure.\n\n"
     msg += HELP_TEXT
-    
     await update.message.reply_text(msg, reply_markup=get_remove_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -636,12 +680,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_str = get_bd_time().strftime("%Y-%m-%d")
 
     # ==========================================
+    # ০. মাল্টি-টার্গেট সিলেকশন স্টেট ট্র্যাপ (V10.1 Multi-Target Picker)
+    # ==========================================
+    if state == "WAITING_FOR_TARGET_SELECTION":
+        if text.isdigit():
+            idx = int(text) - 1
+            if 0 <= idx < len(user_data["pending_targets_list"]):
+                selected_target = user_data["pending_targets_list"][idx]
+                update_payload = user_data.get("pending_update_text", "Done")
+                
+                # সিলেকশনের পর এআই প্রসেস শুরু
+                prompt_to_ai = f"Active target chosen: '{selected_target}'. User status update message: '{update_payload}'"
+                
+                user_data["current_state"] = "NORMAL" # স্টেট রিসেট
+                reply, _ = generate_openrouter_chat(prompt_to_ai, "PARSING_TARGET_UPDATE")
+                footer = get_clean_footer("NORMAL")
+                return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+            else:
+                return await update.message.reply_text("ভুল নাম্বার দিছিস তানভির! লিস্টে থাকা নাম্বারের মধ্যে একটা সিলেক্ট কর।")
+        else:
+            user_data["current_state"] = "NORMAL" # নরমাল মোডে রিটার্ন
+
+    # ==========================================
     # ১. লং-টার্ম এবং শর্ট-টার্ম প্ল্যানিং স্পেলস
     # ==========================================
     if text.startswith("/goal"):
         user_msg = text[5:].strip()
         if not user_msg:
-            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/goal ভাইয়া অর্গানিক কেমিস্ট্রির ব্যাকলগ শেষ করতে চাই`")
+            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/goal ভাইয়া অর্গানিক শেষ করতে চাই`")
         user_data["current_state"] = "PLANNING_LONG_TERM"
         user_data["last_interaction_date"] = today_str
         load_from_google_sheet(sync_history=False)
@@ -652,11 +718,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text.startswith("/plan"):
         user_msg = text[5:].strip()
         if not user_msg:
-            # চ্যাটে যদি শুধু /plan লেখে তাহলে প্ল্যানিং মোড অন হবে
             user_data["current_state"] = "PLANNING_MODE"
             user_data["last_interaction_date"] = today_str
             load_from_google_sheet(sync_history=False)
-            msg = "তুই এখন প্লানিং মোডে আছিস। ভাইয়ার কাছে তোর পুরো সিলেবাস রিপোর্ট রেডি আছে। বল আজকে কি কি কাভার করবি আর কোনটার পেছনে কতক্ষণ সময় দিবি?"
+            msg = "তোর সিলেবাস রিপোর্ট চেক করে নিছি। বল আজকে কি কি কাভার করবি আর কোনটার পেছনে কতক্ষণ সময় দিবি? সুন্দর একটা রুটিন বানিয়ে দিচ্ছি।"
             return await update.message.reply_text(msg, reply_markup=get_remove_keyboard())
             
         user_data["current_state"] = "PLANNING_MODE"
@@ -701,26 +766,57 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ==========================================
-    # ৩. টার্গেট ও কাইজেন লাইফস্টাইল স্পেলস
+    # ৩. এআই-চালিত /target এবং /target update (V10.1)
     # ==========================================
-    elif text.startswith("/target"):
-        arg = text[7:].strip().lower()
-        if not arg or arg not in ["done", "failed", "half", "completed"]:
-            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/target Done` বা `/target Failed` বা `/target Half`")
+    elif text.startswith("/target update"):
+        arg = text[14:].strip()
+        if not arg:
+            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/target update ২টা ডান করছি ভাই`")
         
-        status_map = {"done": "Done", "completed": "Done", "failed": "Failed", "half": "Half Done"}
-        parsed_status = status_map[arg]
+        # শিটে একাধিক টার্গেট পেন্ডিং আছে কি না চেক করার লজিক (নিউ লাইন বা কমা স্প্লিটার)
+        raw_targets = [line.strip() for line in user_data["daily_target_raw"].split("\n") if line.strip() and "No target" not in line and "মিশন সফল" not in line]
         
-        if parsed_status == "Done":
-            user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
+        if len(raw_targets) > 1:
+            # V10.1 Multi-Target Selection Triggered
+            user_data["current_state"] = "WAITING_FOR_TARGET_SELECTION"
+            user_data["pending_update_text"] = arg
+            user_data["pending_targets_list"] = raw_targets
             
-        save_target_to_sheet(parsed_status, False)
-        return await update.message.reply_text(f"🎯 আজকের টার্গেট স্ট্যাটাস আপডেট করা হয়েছে: {parsed_status}", reply_markup=get_remove_keyboard())
+            p_msg = "তানভির, কোন টার্গেটটা আপডেট করতে চাস? নিচের লিস্ট থেকে সঠিক নাম্বারটা টাইপ কর:\n\n"
+            for index, target_item in enumerate(raw_targets, 1):
+                p_msg += f"{index}. {target_item}\n"
+            return await update.message.reply_text(p_msg)
+            
+        # সিঙ্গেল টার্গেট হলে নরমাল জেমিনি এভ্যালুয়েশন
+        reply, _ = generate_openrouter_chat(f"Target Update Message: {arg}", "PARSING_TARGET_UPDATE")
+        footer = get_clean_footer("NORMAL")
+        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
 
+    elif text.startswith("/target"):
+        arg = text[7:].strip()
+        if not arg:
+            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম:\n`/target [Done/Half/Failed]` অথবা নিজের ভাষায় লেখ:\n`/target আজকে ফিজিক্স ৩টা লেকচার`")
+            
+        if arg.lower() in ["done", "failed", "half", "completed"]:
+            status_map = {"done": "Done", "completed": "Done", "failed": "Failed", "half": "Half Done"}
+            parsed_status = status_map[arg.lower()]
+            if parsed_status == "Done":
+                user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
+            save_target_to_sheet(parsed_status, False, "ম্যানুয়াল আপডেট")
+            return await update.message.reply_text(f"🎯 আজকের টার্গেট স্ট্যাটাস আপডেট করা হয়েছে: {parsed_status}", reply_markup=get_remove_keyboard())
+        
+        # V10.1 AI-Powered Custom Target Creation
+        reply, _ = generate_openrouter_chat(f"Set custom target: {arg}", "PARSING_CUSTOM_TARGET")
+        footer = get_clean_footer("NORMAL")
+        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+
+    # ==========================================
+    # ৩.১. কাইজেন লাইফস্টাইল স্পেলস (V10.1)
+    # ==========================================
     elif text.startswith("/kaizen update"):
         arg = text[14:].strip()
         if not arg:
-            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/kaizen update Success` বা `/kaizen update Failure`")
+            return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম: `/kaizen update ভাইয়া আজকে সকাল ৯টায় উঠছি`")
         
         reply, _ = generate_openrouter_chat(f"Kaizen status update: {arg}", "PARSING_KAIZEN_LOG")
         footer = get_clean_footer("NORMAL")
@@ -743,7 +839,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not raw_payload:
             return await update.message.reply_text("💡 স্পেল ব্যবহারের নিয়ম:\n`/add P1 C1 L1-10` বা কমা/নতুন লাইনে একসাথে একাধিক যুক্ত কর:\n`/add P1 C1 L1-10, B1 C3 L1-3`")
         
-        # কমা (,) অথবা লাইনব্রেক (\n) দুই প্যাটার্ন দিয়েই স্প্লিট করা হচ্ছে
         lines = [line.strip() for line in re.split(r'[\n,]+', raw_payload) if line.strip()]
         success_messages = []
         errors = []
@@ -849,7 +944,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(reply_msg, reply_markup=get_remove_keyboard())
 
     # ==========================================
-    # ৫. আইসোলেটেড একটিভ চ্যাট স্টেট ট্র্যাপ (প্ল্যানিং মোড রানিং)
+    # ৫. আইসোলেটেড একটিভ চ্যাট স্টেট ট্র্যাপ
     # ==========================================
     if state == "PLANNING_MODE":
         reply, rem_time = generate_openrouter_chat(text, "PLANNING_MODE")
@@ -864,7 +959,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
 
     # ==========================================
-    # ৬. সকালের ১ম চ্যাটের ডাইনামিক গ্রিটিংস (কেবল ক্যাজুয়াল চ্যাটে ট্রিগার হবে)
+    # ৬. সকালের ১ম চ্যাটের ডাইনামিক গ্রিটিংস
     # ==========================================
     if user_data["last_interaction_date"] != today_str:
         user_data["last_interaction_date"] = today_str
@@ -899,21 +994,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     footer = get_clean_footer("NORMAL")
     await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
 
-# ===================================================
-# BLOCK 9: HOURLY CHECK-INS & SPECIAL COMMANDS (V9.1)
-# ===================================================
-async def hourly_mentor_check(context: ContextTypes.DEFAULT_TYPE):
-    if user_data["daily_target_raw"] == "No target set yet." or "successful" in user_data["daily_target_raw"].lower(): 
-        return
-    current_hour = get_bd_time().hour
-    if current_hour >= 0 and current_hour < 7: 
-        return
-    
-    reply, _ = generate_openrouter_chat("[SYSTEM_TRIGGER: HOURLY SCHEDULE CHECK]", "NORMAL")
+# =================================================================
+# BLOCK 9: 3-NUDGE ELITE DAY-SCHEDULE & SPECIAL COMMANDS (V10.1)
+# =================================================================
+async def morning_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
+    """সকাল ০৯:০০ টা - মর্নিং মোটিভেশন + কাইজেন ওয়ার্মআপ"""
+    # ১লা মিশন: কাইজেন লাইফস্টাইল অভ্যাস রি-ইনফোর্সমেন্ট
+    nudge_trigger = "[SYSTEM_TRIGGER: MORNING_NUDGE_09AM. Greet Tanvir with high-energy elder-brotherly motivation. Remind him of his active Kaizen habits and push him to write his daily study /plan right away. Keep it powerful and focused.]"
+    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
     footer = get_clean_footer("NORMAL")
     try: 
         await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
-    except Exception: pass
+    except Exception as e:
+        logging.error(f"Morning Nudge failed: {e}")
+
+async def evening_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
+    """সন্ধ্যা ০৭:০০ টা - ইভনিং কুইক প্রোগ্রেস রিভিউ"""
+    if "No target" in user_data["daily_target_raw"] or "মিশন সফল" in user_data["daily_target_raw"]:
+        return
+    nudge_trigger = "[SYSTEM_TRIGGER: EVENING_NUDGE_07PM. Half of the day has passed. Take a brief check on the progress of today's targets. Give a realistic and warm reality-check to finish strong.]"
+    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
+    footer = get_clean_footer("NORMAL")
+    try: 
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
+    except Exception as e:
+        logging.error(f"Evening Nudge failed: {e}")
+
+async def night_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
+    """রাত ১১:০০ টা - নাইট ক্লোজিং ডুয়াল-রিভিউ (টার্গেট ও কাইজেন লাইফস্টাইল বোথ ট্র্যাকিং)"""
+    nudge_trigger = "[SYSTEM_TRIGGER: NIGHT_NUDGE_11PM. Final review before sleep. Check and demand strict calculations for BOTH today's study target and Kaizen lifestyle habit. Be strict but highly loving like Jeetu Bhaiya.]"
+    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
+    footer = get_clean_footer("NORMAL")
+    try: 
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
+    except Exception as e:
+        logging.error(f"Night Nudge failed: {e}")
 
 def chapter_sort_key(item):
     key, _ = item
@@ -928,7 +1043,7 @@ async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     filter_arg = context.args[0].upper() if context.args else None
     if filter_arg and filter_arg not in ["P", "C", "M", "B"]:
-        await update.message.reply_text("ভুল সাবজেক্ট কোড! শুধু P (Physics), C (Chemistry), M (Math), বা B (Biology) ব্যবহার কর ভাই।")
+        await update.message.reply_text("ভুল সাবজেক্ট কোড! শুধু P, C, M, বা B ব্যবহার কর ভাই।")
         return
         
     msg = "📖 সিলেবাস কোড ডিকশনারী ম্যাপ\n━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -947,28 +1062,66 @@ async def chapters_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text(msg)
     
+    
 # =============================================
-# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V10)
+# BLOCK 10: ENGINE RUNNER & PORT BINDERS (V10.1)
 # =============================================
 def run_dummy_server(): 
     HTTPServer(('', int(os.environ.get("PORT", 8080))), SimpleHTTPRequestHandler).serve_forever()
 
+async def post_init(application: Application) -> None:
+    """V10.1 Feature 4: Slash Command Auto-Suggestion (Telegram Auto-Complete Menu)"""
+    from telegram import BotCommand
+    commands = [
+        BotCommand("start", "জিতু ভাইয়ের মোটিভেশনাল ও কাইজেন ওয়ার্মআপ"),
+        BotCommand("help", "জিতু ভাইয়ের সব স্পেলের লাইভ ডিকশনারি বুক"),
+        BotCommand("status", "লাইভ ড্যাশবোর্ড, প্রোগ্রেস ও কাইজেন প্যাটার্ন দেখা"),
+        BotCommand("report", "সিলেবাসের এস্থেটিক প্রোগ্রেস ট্রি দেখা (P/C/M/B)"),
+        BotCommand("chapters", "সিলেবাস চ্যাপ্টার ও শর্টকোড ডিকশনারি ম্যাপ"),
+        BotCommand("plan", "আজকের পড়াশোনার বিস্তারিত রুটিন ও মিশন সেট করা"),
+        BotCommand("goal", "দীর্ঘমেয়াদী মাস্টার রোডম্যাপ লক করা"),
+        BotCommand("target", "টার্গেট সেট/আপডেট (Done/Half/Failed বা নিজের ভাষায়)"),
+        BotCommand("kaizen", "নতুন কাইজেন হ্যাবিট সেট করা বা আপডেট নেওয়া"),
+        BotCommand("break", "পড়ার মাঝে রিলাক্সেশন ব্রেক নেওয়া (/break [মিনিট])"),
+        BotCommand("add", "সিলেবাসে নতুন লেকচার বা রেঞ্জ অ্যাড করা"),
+        BotCommand("done", "লেকচার বা ক্লাস সম্পন্ন ডান মার্ক করা"),
+        BotCommand("note", "চ্যাপ্টারের নোট নেওয়া সম্পন্ন করা"),
+        BotCommand("practice", "চ্যাপ্টারের প্র্যাকটিস কমপ্লিট করা"),
+        BotCommand("exam", "চ্যাপ্টারের এক্সাম ডান মার্ক করা")
+    ]
+    await application.bot.set_my_commands(commands)
+    logging.info("🌟 Telegram Slash Menu commands successfully registered!")
+
 def main():
     threading.Thread(target=run_dummy_server, daemon=True).start()
     load_from_google_sheet(sync_history=True)
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # ৩টি বেসিক রুট কমান্ড রাখা হলো, বাকি সব হ্যান্ডলিং handle_message দিয়ে প্রসেসড হবে
+    # বোটে post_init মেথড সিঙ্ক করা হলো যাতে টেলিগ্রামে কমান্ড সাজেশন শো করে
+    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))  
     app.add_handler(CommandHandler("status", status_command))  
     
-    # সমস্ত চ্যাট ইনপুট মেসেজ হ্যান্ডলার দিয়ে রাউট হবে
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    if app.job_queue: 
-        app.job_queue.run_repeating(hourly_mentor_check, interval=3600, first=3600, name="hourly_tracker")
     
-    print("✅ Jeetu Bhaiya V10 (Stable Release) successfully initiated on background threads!")
+    if app.job_queue:
+        # V10.1 Feature 1 & 7: Elite 3-Nudge Schedule Sync (Pure Bangladesh Time UTC+6)
+        # BD 09:00 AM -> UTC 03:00 AM
+        # BD 07:00 PM -> UTC 01:00 PM
+        # BD 11:00 PM -> UTC 05:00 PM
+        utc_tz = datetime.timezone.utc
+        
+        # সকালের নুজ (০৯:০০ টা)
+        app.job_queue.run_daily(morning_nudge_callback, time=datetime.time(hour=3, minute=0, tzinfo=utc_tz), name="morning_nudge")
+        # সন্ধ্যার নুজ (০৭:০০ টা)
+        app.job_queue.run_daily(evening_nudge_callback, time=datetime.time(hour=13, minute=0, tzinfo=utc_tz), name="evening_nudge")
+        # রাতের নুজ (১১:০০ টা)
+        app.job_queue.run_daily(night_nudge_callback, time=datetime.time(hour=17, minute=0, tzinfo=utc_tz), name="night_nudge")
+        
+        logging.info("🕒 V10.1 Elite 3-Nudge Daily Schedulers initiated successfully!")
+    
+    print("✅ Jeetu Bhaiya V10.1 (Stable Release) successfully initiated on background threads!")
     app.run_polling()
 
 if __name__ == '__main__': 
