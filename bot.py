@@ -783,8 +783,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply, _ = generate_openrouter_chat(user_msg, "PLANNING_MODE")
         footer = get_clean_footer("PLANNING_MODE")
         return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
-        
-   elif text.startswith("/break"):
+
+    elif text.startswith("/break"):
         arg = text[6:].strip()
         if not arg:
             return await update.message.reply_text("💡 রিমাইন্ডার ব্যবহারের নিয়ম:\n`/break 15` (১৫ মিনিটের নরমাল ব্রেক)\n`/break ১০ মিনিট পর পড়তে বসব` (ডায়নামিক ব্রেক)\n`/break ২ ঘণ্টা পর লেকচার ১ এর আপডেট নিস` (কাস্টম পড়ার আপডেট)", reply_markup=get_remove_keyboard())
