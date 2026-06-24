@@ -537,7 +537,7 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             
     except Exception as e:
         logging.error(f"⚠️ API Network Exception: {e}")
-        raise e  # রিট্রাই মেকানিজমে ধরার জন্য এক্সেপশন রেইজ করা হলো
+        raise RuntimeError(f"500 INTERNAL. {str(e)[:150]}")  # রিট্রাই মেকানিজমে ধরার জন্য ক্লিন এক্সেপশন থ্রো
 
 async def generate_chat_with_retry(update: Update or None, context: ContextTypes.DEFAULT_TYPE, user_message: str, context_reason: str = "NORMAL") -> tuple:
     max_retries = 3
@@ -548,6 +548,14 @@ async def generate_chat_with_retry(update: Update or None, context: ContextTypes
         try:
             # সিঙ্কোনাস এপিআই রিকোয়েস্ট কল
             reply, reminder_data = generate_openrouter_chat(user_message, context_reason)
+            
+            # 🛡️ বুলেটের মতো ফেইলপ্রুফ ফিল্টার: যদি কোনো কারণে পুরানো জেনারেট ফাংশন রিপ্লেস না হয়ে থাকে,
+            # এবং সে এরর মেসেজ স্ট্রিং রিটার্ন করে, তবে জোরপূর্বক এক্সেপশন রেইজ করা হবে
+            if isinstance(reply, str) and "Offline (500/503)" in reply:
+                match_details = re.search(r"• ট্র্যাকিং ডিটেইলস:\s*(.*)", reply)
+                err_text = match_details.group(1).strip() if match_details else reply
+                raise RuntimeError(err_text)
+                
             footer = get_clean_footer(context_reason)
             final_text = reply + footer
             
@@ -568,7 +576,12 @@ async def generate_chat_with_retry(update: Update or None, context: ContextTypes
             return reply, reminder_data
             
         except Exception as e:
-            error_details = str(e)[:150]
+            # ট্র্যাকিং ডিটেইলস থেকে অপ্রয়োজনীয় RuntimeError প্রিফিক্স পরিষ্কার করা
+            error_details = str(e).replace("RuntimeError:", "").strip()
+            if not error_details:
+                error_details = "Internal error encountered."
+            
+            error_details = error_details[:150]
             
             # চূড়ান্ত ব্যর্থতা (Attempt 3/3 ও ব্যর্থ হলে)
             if attempt == max_retries:
