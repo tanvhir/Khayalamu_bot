@@ -305,6 +305,8 @@ def parse_smart_shortcode(text):
 # ==========================================
 # BLOCK 5: ADAPTIVE GOOGLE GENAI COGNITIVE PIPELINE (V10.1 Pure AI-in-the-Loop)
 # ==========================================
+import asyncio
+
 def generate_raw_syllabus_report_text():
     if not user_chapters and not user_lectures:
         return "সিলেবাসে কোনো ডেটা নেই।"
@@ -388,7 +390,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
 
     temp = 0.7
     if context_reason == "PLANNING_MODE":
-        # /plan কমান্ডে কোনো গুগল শিট রাইট পারমিশন নেই (নো মেমরি এডিটিং ট্যাগস)
         system_prompt += "\n\nSTRICT PLANNING MODE RULE:\n" \
                          "তোর এখন গুগল শিটে টার্গেট যোগ করার বা পরিবর্তন করার কোনো ক্ষমতা নেই। তুই কেবল তানভীরের সাথে আলোচনা করে সুন্দরভাবে পড়াশোনার প্ল্যান সাজিয়ে দিবি। টার্গেটের ডাটাবেজ নিয়ে কোনো ট্যাগ (যেমন <SET_TARGET>, <TARGET_PARSE>, <UPDATE_TARGET>) এখানে তৈরি করবি না। তানভীরের সাথে টার্গেট চূড়ান্ত হলে তাকে বলবি: 'টার্গেট লক করতে চাইলে /target [final target text] লিখে দে ভাই।'"
         temp = 0.3
@@ -396,7 +397,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
         system_prompt += "\n\nSTRICT LONG TERM PLANNING RULE:\nতুমি এখন লং-টার্ম রোডম্যাপ সেশনে আছ। মেসেজের শেষে এই ট্যাগটি দাও:\n<UPDATE_LONG_TERM>লং-টার্ম প্ল্যানের সংক্ষিপ্ত সামারি</UPDATE_LONG_TERM>"
         temp = 0.3
     elif context_reason == "PARSING_CUSTOM_TARGET":
-        # /target কমান্ডের স্পেসিফিকেশন: নতুন সেট অথবা ভুল সংশোধন (ইন-প্লেস ওভাররাইট)
         system_prompt += "\n\nSTRICT TARGET SETTING RULES:\n" \
                          "1. If Tanvir is correcting a mistake in his active target, complained about duplicate entries, or is correcting Jeetu Bhaiya's misunderstanding, end your reply with this tag EXACTLY:\n" \
                          "<OVERWRITE_TARGET>Corrected Target Description Text|ভুল সংশোধন</OVERWRITE_TARGET>\n" \
@@ -404,7 +404,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
                          "<SET_TARGET>Summarized Target Description</SET_TARGET>"
         temp = 0.3
     elif context_reason == "PARSING_TARGET_UPDATE":
-        # /tupdate কমান্ডের স্পেসিফিকেশন: শুধু একটিভ টার্গেট আপডেট (নো নিউ রো ক্রিয়েশন)
         system_prompt += "\n\nSTRICT PROGRESS UPDATE RULES:\n" \
                          "Tanvir has sent a progress update regarding his current target. Analyze if he completed it (Done), partially did it (Half Done), or failed. DO NOT set or modify any description text. You must ONLY output this tag EXACTLY:\n" \
                          "<TARGET_PARSE>Done or Half Done or Failed|২-৩ শব্দের বাংলা নোট/রিমার্কস</TARGET_PARSE>"
@@ -473,7 +472,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
                 logging.error(f"Error parsing reminder tag: {ex}")
             bot_reply = re.sub(r"<SET_REMINDER>.*?</SET_REMINDER>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
             
-        # V10.1 Pure Command Interceptor Engine
         match_overwrite = re.search(r"<OVERWRITE_TARGET>(.*?)</OVERWRITE_TARGET>", bot_reply, re.IGNORECASE | re.DOTALL)
         if match_overwrite:
             payload = match_overwrite.group(1).strip()
@@ -525,7 +523,6 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             if status in ["Done", "Completed"]: 
                 user_data["daily_target_raw"] = "No target set yet. (কালকের মিশন সফল! 🔥)"
             
-            # This is an update, is_new is STRICTLY False!
             threading.Thread(target=save_target_to_sheet, args=(status, False, remarks), daemon=True).start()
             bot_reply = re.sub(r"<TARGET_PARSE>.*?</TARGET_PARSE>", "", bot_reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
@@ -540,11 +537,81 @@ def generate_openrouter_chat(user_message: str, context_reason: str = "NORMAL") 
             
     except Exception as e:
         logging.error(f"⚠️ API Network Exception: {e}")
-        error_alert = f"⚠️ নেটওয়ার্ক ড্রপ বা ইন্টারনাল সার্ভার এরর খাইছে ভাই!\n" \
-                      f"• স্ট্যাটাস: Google Gemini API Offline (500/503)\n" \
-                      f"• ট্র্যাকিং ডিটেইলস: {str(e)[:150]}\n" \
-                      f"জিতু ভাইয়া ব্যাকগ্রাউন্ডে সাইলেন্টলি ফেইল না করে তোকে এলার্ট জানিয়ে দিল। একটু পর আবার মেসেজ দে!"
-        return error_alert, None
+        raise e  # রিট্রাই মেকানিজমে ধরার জন্য এক্সেপশন রেইজ করা হলো
+
+async def generate_chat_with_retry(update: Update or None, context: ContextTypes.DEFAULT_TYPE, user_message: str, context_reason: str = "NORMAL") -> tuple:
+    max_retries = 3
+    delay = 2.0  # রিট্রাই চেষ্টার অন্তর্বর্তী সময় (সেকেন্ড)
+    sent_msg = None
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            # সিঙ্কোনাস এপিআই রিকোয়েস্ট কল
+            reply, reminder_data = generate_openrouter_chat(user_message, context_reason)
+            footer = get_clean_footer(context_reason)
+            final_text = reply + footer
+            
+            if update:
+                if sent_msg:
+                    # রিট্রাইয়ের পর সফল হলে এরর মেসেজটি বদলে আসল রিপ্লাইটি বসবে
+                    await context.bot.edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=sent_msg.message_id,
+                        text=final_text
+                    )
+                else:
+                    await update.message.reply_text(final_text, reply_markup=get_remove_keyboard())
+            else:
+                # ব্যাকগ্রাউন্ড নুজেস ট্র্রিগার
+                await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=final_text)
+                
+            return reply, reminder_data
+            
+        except Exception as e:
+            error_details = str(e)[:150]
+            
+            # চূড়ান্ত ব্যর্থতা (Attempt 3/3 ও ব্যর্থ হলে)
+            if attempt == max_retries:
+                final_error_text = (
+                    f"⚠️ নেটওয়ার্ক ড্রপ বা ইন্টারনাল সার্ভার এরর খাইছে ভাই!\n"
+                    f"• স্ট্যাটাস: Google Gemini API Offline (500/503)\n"
+                    f"• ট্র্যাকিং ডিটেইলস: {error_details}\n"
+                    f"জিতু ভাইয়া ৩ বার চেষ্টা করেও কানেক্ট করতে পারল না। গুগল এপিআই সাময়িকভাবে সম্পূর্ণ ডাউন আছে। একটু পর আবার মেসেজ দে!"
+                )
+                if update:
+                    if sent_msg:
+                        await context.bot.edit_message_text(
+                            chat_id=update.effective_chat.id,
+                            message_id=sent_msg.message_id,
+                            text=final_error_text
+                        )
+                    else:
+                        await update.message.reply_text(final_error_text, reply_markup=get_remove_keyboard())
+                else:
+                    await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=final_error_text)
+                return "ERROR", None
+            
+            # আপনার হুবহু এরর ফরম্যাট + রিট্রাই কাউন্টার জেনারেটর
+            warn_text = (
+                f"⚠️ নেটওয়ার্ক ড্রপ বা ইন্টারনাল সার্ভার এরর খাইছে ভাই!\n"
+                f"• স্ট্যাটাস: Google Gemini API Offline (500/503)\n"
+                f"• ট্র্যাকিং ডিটেইলস: {error_details}\n"
+                f"জিতু ভাইয়া ব্যাকগ্রাউন্ডে সাইলেন্টলি ফেইল না করে তোকে এলার্ট জানিয়ে দিল। একটু পর আবার মেসেজ দে!\n"
+                f"------------------------------------------\n"
+                f"Attempt: {attempt}/{max_retries}"
+            )
+            
+            if update:
+                if not sent_msg:
+                    sent_msg = await update.message.reply_text(warn_text, reply_markup=get_remove_keyboard())
+                else:
+                    await context.bot.edit_message_text(
+                        chat_id=update.effective_chat.id,
+                        message_id=sent_msg.message_id,
+                        text=warn_text
+                    )
+            
+            await asyncio.sleep(delay)
         
 # ==========================================
 # BLOCK 6: DASHBOARDS & REPORTS
@@ -705,7 +772,6 @@ async def show_chapters_list(update: Update, filter_arg=None):
 async def scheduled_reminder_callback(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     try:
-        # ডায়নামিক কাস্টম মেসেজ থাকলে তা ব্যবহার করবে, অন্যথায় ডিফল্ট মেসেজ দেখাবে
         text = job.data if job.data else "কিরে! ব্রেক শেষ বলছিলি না? সময় শেষ, চল এবার জলদি পড়ার টেবিলে ফেরা যাক।"
         await context.bot.send_message(chat_id=job.chat_id, text=text)
     except Exception as e:
@@ -716,15 +782,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     raw_text = update.message.text.strip()
     
-    # 🛡️ V10.1 Anti-Typo & Auto-Routing Normalizer
     normalized_text = raw_text
     
-    # Target Update -> /tupdate এ নিখুঁত অটো-কনভার্ট
     normalized_text = re.sub(r"^/target\s+update", "/tupdate", normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r"^/target_update", "/tupdate", normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r"^/targetupdate", "/tupdate", normalized_text, flags=re.IGNORECASE)
     
-    # Kaizen Update -> /kupdate এ নিখুঁত অটো-কনভার্ট
     normalized_text = re.sub(r"^/kaizen\s+update", "/kupdate", normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r"^/kaizen_update", "/kupdate", normalized_text, flags=re.IGNORECASE)
     normalized_text = re.sub(r"^/kaizenupdate", "/kupdate", normalized_text, flags=re.IGNORECASE)
@@ -743,17 +806,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 selected_target = user_data["pending_targets_list"][idx]
                 update_payload = user_data.get("pending_update_text", "Done")
                 
-                # এআই দিয়ে প্রোগ্রেস এনালাইসিস করে শিটে সেভ (is_new=False তে ওভাররাইট হবে)
                 prompt_to_ai = f"Active target chosen: '{selected_target}'. User progress update: '{update_payload}'"
                 
                 user_data["current_state"] = "NORMAL"
-                reply, _ = generate_openrouter_chat(prompt_to_ai, "PARSING_TARGET_UPDATE")
-                footer = get_clean_footer("NORMAL")
-                return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+                await generate_chat_with_retry(update, context, prompt_to_ai, "PARSING_TARGET_UPDATE")
+                return
             else:
                 return await update.message.reply_text("ভুল নাম্বার দিছিস তানভির! লিস্টে থাকা নাম্বারের মধ্যে একটা সিলেক্ট কর।")
         else:
-            user_data["current_state"] = "NORMAL" # অংক না লিখে অন্য কিছু টাইপ করলে স্টেট রিলিজ
+            user_data["current_state"] = "NORMAL"
 
     # ==========================================
     # ১. লং-টার্ম এবং শর্ট-টার্ম প্ল্যানিং স্পেলস
@@ -765,9 +826,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["current_state"] = "PLANNING_LONG_TERM"
         user_data["last_interaction_date"] = today_str
         load_from_google_sheet(sync_history=False)
-        reply, _ = generate_openrouter_chat(user_msg, "PLANNING_LONG_TERM")
-        footer = get_clean_footer("PLANNING_LONG_TERM")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, user_msg, "PLANNING_LONG_TERM")
+        return
         
     elif text.startswith("/plan"):
         user_msg = text[5:].strip()
@@ -775,37 +835,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data["last_interaction_date"] = today_str
         load_from_google_sheet(sync_history=False)
         
-        # /plan কমান্ড এখন পিওর রিড-অনলি মোড (শিটে কোনো এন্ট্রি হবে না)
         if not user_msg:
             msg = "তোর লাইভ সিলেবাস রিপোর্ট চেক করে রাখছি। বল আজকে কি কি কাভার করবি আর কোনটার পেছনে কতক্ষণ সময় দিবি? সুন্দর একটা রুটিন বানিয়ে দিচ্ছি। (আলোচনা শেষ হলে লক করতে /target ব্যবহার করবি)"
             return await update.message.reply_text(msg, reply_markup=get_remove_keyboard())
             
-        reply, _ = generate_openrouter_chat(user_msg, "PLANNING_MODE")
-        footer = get_clean_footer("PLANNING_MODE")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, user_msg, "PLANNING_MODE")
+        return
 
     elif text.startswith("/break"):
         arg = text[6:].strip()
         if not arg:
             return await update.message.reply_text("💡 রিমাইন্ডার ব্যবহারের নিয়ম:\n`/break 15` (১৫ মিনিটের নরমাল ব্রেক)\n`/break ১০ মিনিট পর পড়তে বসব` (ডায়নামিক ব্রেক)\n`/break ২ ঘণ্টা পর লেকচার ১ এর আপডেট নিস` (কাস্টম পড়ার আপডেট)", reply_markup=get_remove_keyboard())
         
-        # যদি ইউজার সরাসরি কেবল সংখ্যা টাইপ করে (যেমন: /break 15)
         if arg.isdigit():
             minutes = int(arg)
             if context.job_queue:
                 context.job_queue.run_once(scheduled_reminder_callback, when=minutes*60, data="কিরে! ব্রেক শেষ বলছিলি না? সময় শেষ, চল এবার জলদি পড়ার টেবিলে ফেরা যাক।", chat_id=update.effective_chat.id)
             return await update.message.reply_text(f"☕ ঠিক আছে ভাই, যা একটু রিল্যাক্স কর। ঠিক {minutes} মিনিট পর আমি তোকে ডেকে পড়ার টেবিলে ফিরিয়ে আনব।", reply_markup=get_remove_keyboard())
         
-        # যদি স্বাভাবিক বাংলা টেক্সট বা ডাইনামিক রিমাইন্ডার হয়, তবে এআই রাউটার অন হবে
-        reply, reminder_data = generate_openrouter_chat(arg, "PARSING_REMINDER")
-        if reminder_data and context.job_queue:
+        reply, reminder_data = await generate_chat_with_retry(update, context, arg, "PARSING_REMINDER")
+        if reply != "ERROR" and reminder_data and context.job_queue:
             minutes = reminder_data["minutes"]
             message = reminder_data["message"]
             context.job_queue.run_once(scheduled_reminder_callback, when=minutes*60, data=message, chat_id=update.effective_chat.id)
             logging.info(f"Dynamically scheduled reminder in {minutes} minutes with message: {message}")
-        
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        return
 
     # ==========================================
     # ২. কোর ইনফো স্পেলস (রাউটার লেভেল)
@@ -833,7 +887,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ৩. টার্গেট স্পেলস (Separated Target Processing)
     # ==========================================
     elif text.startswith("/tupdate"):
-        # এটি কেবল প্রোগ্রেস রেকর্ড করবে, টার্গেট ডেসক্রিপশন কখনোই ডাবল বা এডিট করবে না
         arg = text[8:].strip()
         if not arg:
             return await update.message.reply_text("💡 প্রোগ্রেস আপডেট করার নিয়ম: `/tupdate ২টা লেকচার ডান করছি ভাই` বা `/tupdate Failed`")
@@ -850,12 +903,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 p_msg += f"{index}. {target_item}\n"
             return await update.message.reply_text(p_msg)
             
-        reply, _ = generate_openrouter_chat(f"Progress Update: {arg}", "PARSING_TARGET_UPDATE")
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, f"Progress Update: {arg}", "PARSING_TARGET_UPDATE")
+        return
 
     elif text.startswith("/target"):
-        # এটি কেবল নতুন টার্গেট সেট অথবা ভুল সংশোধনের ওভাররাইট করবে
         arg = text[7:].strip()
         if not arg:
             return await update.message.reply_text("💡 টার্গেট সেট করার নিয়ম:\n`/target কালকে ৪টা লেকচার পড়া`\n\nঅথবা ভুল টার্গেট এডিট/ওভাররাইট করতে চাইলে বাংলায় বলবি:\n`/target ভাইয়া আগের টার্গেটে ভুল হইছিল, ২টা এন্ট্রি পড়ে গেছে`")
@@ -863,9 +914,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if arg.lower() in ["done", "failed", "half", "completed"]:
             return await update.message.reply_text("⚠️ টার্গেট সম্পন্ন করতে এই স্পেল না, বরং প্রোগ্রেস আপডেট স্পেল `/tupdate` ব্যবহার কর ভাই!")
         
-        reply, _ = generate_openrouter_chat(f"Target logic: {arg}", "PARSING_CUSTOM_TARGET")
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, f"Target logic: {arg}", "PARSING_CUSTOM_TARGET")
+        return
 
     # ==========================================
     # ৩.১. কাইজেন লাইফস্টাইল স্পেলস
@@ -875,18 +925,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not arg:
             return await update.message.reply_text("💡 কাইজেন আপডেটের নিয়ম: `/kupdate আজকে ঠিক সকাল ৯টায় উঠছি`")
         
-        reply, _ = generate_openrouter_chat(f"Kaizen lifestyle log: {arg}", "PARSING_KAIZEN_LOG")
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, f"Kaizen lifestyle log: {arg}", "PARSING_KAIZEN_LOG")
+        return
         
     elif text.startswith("/kaizen"):
         arg = text[7:].strip()
         if not arg:
             return await update.message.reply_text("💡 কাইজেন গোল সেটের নিয়ম: `/kaizen রাত ১২টায় ফোন অফ`")
         
-        reply, _ = generate_openrouter_chat(f"New Lifestyle Habit: {arg}", "PARSING_KAIZEN_SET")
-        footer = get_clean_footer("NORMAL")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, f"New Lifestyle Habit: {arg}", "PARSING_KAIZEN_SET")
+        return
 
     # ==========================================
     # ৪. সিলেবাস ইনস্ট্যান্ট আপডেট স্পেলস (The Killer Features! - বাল্ক সাপোর্ট সহ)
@@ -1004,58 +1052,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ৫. আইসোলেটেড একটিভ চ্যাট স্টেট ট্র্যাপ (প্ল্যানিং মোড সেশন)
     # ==========================================
     if state == "PLANNING_MODE":
-        reply, _ = generate_openrouter_chat(text, "PLANNING_MODE")
-        footer = get_clean_footer("PLANNING_MODE")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, text, "PLANNING_MODE")
+        return
 
     elif state == "PLANNING_LONG_TERM":
-        reply, _ = generate_openrouter_chat(text, "PLANNING_LONG_TERM")
-        footer = get_clean_footer("PLANNING_LONG_TERM")
-        return await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+        await generate_chat_with_retry(update, context, text, "PLANNING_LONG_TERM")
+        return
 
     # ==========================================
-    # ৬. ক্যাজুয়াল চ্যাট হ্যান্ডলিং (সাইলেন্ট ডেট ট্র্যাক সহ)
+    # ৬. ক্যাজুয়াল চ্যাট হ্যান্ডলিং (সائلেন্ট ডেট ট্র্যাক সহ)
     # ==========================================
     user_data["last_interaction_date"] = today_str
-    reply, _ = generate_openrouter_chat(text, "NORMAL")
-    footer = get_clean_footer("NORMAL")
-    await update.message.reply_text(reply + footer, reply_markup=get_remove_keyboard())
+    await generate_chat_with_retry(update, context, text, "NORMAL")
 
 # =================================================================
 # BLOCK 9: 3-NUDGE ELITE DAY-SCHEDULE & SPECIAL COMMANDS (V10.1)
 # =================================================================
 async def morning_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
     """সকাল ০৯:০০ টা - মর্নিং মোটিভেশন + কাইজেন ওয়ার্মআপ"""
-    # ১লা মিশন: কাইজেন লাইফস্টাইল অভ্যাস রি-ইনফোর্সমেন্ট
     nudge_trigger = "[SYSTEM_TRIGGER: MORNING_NUDGE_09AM. Greet Tanvir with high-energy elder-brotherly motivation. Remind him of his active Kaizen habits and push him to write his daily study /plan right away. Keep it powerful and focused.]"
-    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
-    footer = get_clean_footer("NORMAL")
-    try: 
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
-    except Exception as e:
-        logging.error(f"Morning Nudge failed: {e}")
+    await generate_chat_with_retry(None, context, nudge_trigger, "NORMAL")
 
 async def evening_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
     """সন্ধ্যা ০৭:০০ টা - ইভনিং কুইক প্রোগ্রেস রিভিউ"""
     if "No target" in user_data["daily_target_raw"] or "মিশন সফল" in user_data["daily_target_raw"]:
         return
     nudge_trigger = "[SYSTEM_TRIGGER: EVENING_NUDGE_07PM. Half of the day has passed. Take a brief check on the progress of today's targets. Give a realistic and warm reality-check to finish strong.]"
-    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
-    footer = get_clean_footer("NORMAL")
-    try: 
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
-    except Exception as e:
-        logging.error(f"Evening Nudge failed: {e}")
+    await generate_chat_with_retry(None, context, nudge_trigger, "NORMAL")
 
 async def night_nudge_callback(context: ContextTypes.DEFAULT_TYPE):
-    """রাত ১১:০০ টা - নাইট ক্লোজিং ডুয়াল-রিভিউ (টার্গেট ও কাইজেন লাইফস্টাইল বোথ ট্র্যাকিং)"""
+    """রাত ১১:০০ টা - নাইট ডুয়াল-রিভিউ (টার্গেট ও কাইজেন লাইফস্টাইল ট্র্যাকিং)"""
     nudge_trigger = "[SYSTEM_TRIGGER: NIGHT_NUDGE_11PM. Final review before sleep. Check and demand strict calculations for BOTH today's study target and Kaizen lifestyle habit. Be strict but highly loving like Jeetu Bhaiya.]"
-    reply, _ = generate_openrouter_chat(nudge_trigger, "NORMAL")
-    footer = get_clean_footer("NORMAL")
-    try: 
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=reply + footer)
-    except Exception as e:
-        logging.error(f"Night Nudge failed: {e}")
+    await generate_chat_with_retry(None, context, nudge_trigger, "NORMAL")
 
 def chapter_sort_key(item):
     key, _ = item
